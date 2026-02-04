@@ -1,0 +1,45 @@
+.loader-factiony-container {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* image du F */
+.loader-factiony-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 0 10px rgba(0, 200, 255, 0.8));
+}
+
+/* masque permettant l'effet "remplissage" */
+.loader-factiony-mask {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+/* la couche de remplissage */
+.loader-factiony-mask::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 0%;
+  background: linear-gradient(to top, #3df0ff, #7b3cff);
+  mix-blend-mode: screen;
+  animation: factionyFill 1.4s infinite ease-in-out;
+  border-radius: 4px;
+}
+
+/* animation de remplissage */
+@keyframes factionyFill {
+  0%   { height: 0%;   opacity: 0.8; }
+  50%  { height: 100%; opacity: 1;   }
+  100% { height: 0%;   opacity: 0.8; }
+}

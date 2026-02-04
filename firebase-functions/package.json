@@ -1,0 +1,15 @@
+{
+  "name": "factiony-cloud-functions",
+  "version": "1.0.0",
+  "description": "Firebase Cloud Functions for Factiony API proxy",
+  "engines": {
+    "node": "18"
+  },
+  "main": "apiFunction.js",
+  "dependencies": {
+    "firebase-functions": "^5.0.0",
+    "firebase-admin": "^12.0.0",
+    "axios": "^1.6.0"
+  },
+  "private": true
+}

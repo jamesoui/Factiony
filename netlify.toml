@@ -1,0 +1,21 @@
+[build]
+publish = "dist"
+command = "npx vite build"
+
+[build.environment]
+# Firebase API keys are safe to expose in client-side code
+# They are protected by Firebase security rules
+SECRETS_SCAN_SMART_DETECTION_OMIT_VALUES = "AIzaSyCnduNWsBXaMbDKgVB9mflpJIdPr7jceI0"
+
+[[redirects]]
+from = "/*"
+to = "/index.html"
+status = 200
+
+[[edge_functions]]
+function = "share-review"
+path = "/share/review/*"
+
+[[edge_functions]]
+function = "og-review"
+path = "/og/review/*"
