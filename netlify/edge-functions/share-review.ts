@@ -1,118 +1,140 @@
 import type { Context } from "https://edge.netlify.com";
 
+function escapeHtml(s: string) {
+  return s
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 export default async (request: Request, context: Context) => {
   const url = new URL(request.url);
   const pathname = url.pathname;
+  const reviewId = pathname.split("/").filter(Boolean).pop() || "";
 
-  // Extract review ID from URL path: /share/review/{reviewId}
-  const reviewId = pathname.split('/').pop();
-
-  if (!reviewId) {
-    return new Response('Review ID not found', { status: 404 });
-  }
-
-  console.log('[share-review] Processing review:', reviewId);
-
-  // Get Supabase environment variables
-const supabaseUrl =
-  Deno.env.get("SUPABASE_URL") ||
-  Deno.env.get("VITE_SUPABASE_URL") ||
-  "https://ffcocumtwoyydgsuhwxi.supabase.co";
-
-const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const anonKey = Deno.env.get("VITE_SUPABASE_ANON_KEY");
-
-// Use service role first (server), fallback to anon
-const supabaseKey = serviceRoleKey || anonKey;
-
-if (!supabaseKey) {
-  return new Response(
-    "Missing Supabase key (SUPABASE_SERVICE_ROLE_KEY or VITE_SUPABASE_ANON_KEY)",
-    { status: 200, headers: { "content-type": "text/plain; charset=utf-8" } }
-  );
-}
-
-let gameSlug = null;
-
-  // Try to fetch the game slug from Supabase
-  if (supabaseAnonKey) {
-    try {
-      const response = await fetch(
-        `${supabaseUrl}/rest/v1/game_ratings?id=eq.${reviewId}&select=game_slug`,
-        {
-          headers: {
-  apikey: supabaseKey,
-  Authorization: `Bearer ${supabaseKey}`,
-},
-        }
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data && data.length > 0 && data[0].game_slug) {
-          gameSlug = data[0].game_slug;
-          console.log('[share-review] Found game slug:', gameSlug);
-        }
-      }
-    } catch (error) {
-      console.error('[share-review] Error fetching game slug:', error);
+  try {
+    if (!reviewId) {
+      return new Response("Review ID not found", { status: 404 });
     }
-  }
 
-  // Build URLs
-  const ogImageUrl = `https://factiony.com/og/review/${reviewId}.png`;
+    // ✅ Prefer Netlify-provided env (safe on Edge)
+    const envGet = (key: string) => {
+      // @ts-ignore - context.env exists on Netlify Edge runtime
+      const v = context?.env?.[key];
+      return typeof v === "string" ? v : undefined;
+    };
 
-  // Redirect to game page with review parameter, or fallback to home if no slug
-  const redirectUrl = gameSlug
-    ? `https://factiony.com/game/${gameSlug}?review=${reviewId}`
-    : `https://factiony.com/`;
+    const supabaseUrl =
+      envGet("SUPABASE_URL") ||
+      envGet("VITE_SUPABASE_URL") ||
+      "https://ffcocumtwoyydgsuhwxi.supabase.co";
 
-  console.log('[share-review] Redirect URL:', redirectUrl);
+    const serviceRoleKey = envGet("SUPABASE_SERVICE_ROLE_KEY");
+    const anonKey = envGet("VITE_SUPABASE_ANON_KEY");
+    const supabaseKey = serviceRoleKey || anonKey;
 
-  // Generate HTML with OG meta tags
-  const html = `<!DOCTYPE html>
+    if (!supabaseKey) {
+      return new Response(
+        `Missing Supabase key. Need SUPABASE_SERVICE_ROLE_KEY or VITE_SUPABASE_ANON_KEY.
+pathname=${pathname}
+reviewId=${reviewId}`,
+        { status: 200, headers: { "content-type": "text/plain; charset=utf-8" } }
+      );
+    }
+
+    let gameSlug: string | null = null;
+
+    // Fetch game_slug from game_ratings
+    const restUrl = `${supabaseUrl}/rest/v1/game_ratings?id=eq.${encodeURIComponent(
+      reviewId
+    )}&select=game_slug`;
+
+    const resp = await fetch(restUrl, {
+      headers: {
+        apikey: supabaseKey,
+        Authorization: `Bearer ${supabaseKey}`,
+      },
+    });
+
+    const status = resp.status;
+    const text = await resp.text();
+
+    if (resp.ok) {
+      const data = JSON.parse(text);
+      if (Array.isArray(data) && data[0]?.game_slug) {
+        gameSlug = String(data[0].game_slug);
+      }
+    }
+
+    const ogImageUrl = `https://factiony.com/og/review/${reviewId}.png`;
+
+    // If no slug, show debug page (no silent redirect)
+    if (!gameSlug) {
+      const debugHtml = `<!doctype html><html><head><meta charset="utf-8"><title>Share debug</title></head>
+<body style="font-family:system-ui;padding:24px">
+<h2>Share review debug</h2>
+<p><b>reviewId:</b> ${escapeHtml(reviewId)}</p>
+<p><b>pathname:</b> ${escapeHtml(pathname)}</p>
+<p><b>Supabase REST status:</b> ${status}</p>
+<p><b>Supabase REST url:</b> ${escapeHtml(restUrl)}</p>
+<pre style="white-space:pre-wrap;background:#111;color:#ddd;padding:12px;border-radius:8px">${escapeHtml(
+        text.slice(0, 4000)
+      )}</pre>
+</body></html>`;
+      return new Response(debugHtml, {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
+    }
+
+    const redirectUrl = `https://factiony.com/game/${gameSlug}?tab=reviews&review=${reviewId}`;
+
+    const html = `<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-  <!-- Open Graph / Facebook -->
   <meta property="og:type" content="article">
-  <meta property="og:url" content="${url.href}">
+  <meta property="og:url" content="${escapeHtml(redirectUrl)}">
   <meta property="og:title" content="Critique sur Factiony">
-  <meta property="og:description" content="Découvrez cette critique de jeu sur Factiony, la plateforme de recommandation de jeux vidéo.">
-  <meta property="og:image" content="${ogImageUrl}">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="630">
-  <meta property="og:site_name" content="Factiony">
-
-  <!-- Twitter -->
+  <meta property="og:description" content="Découvrez cette critique de jeu sur Factiony.">
+  <meta property="og:image" content="${escapeHtml(ogImageUrl)}">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:url" content="${url.href}">
+  <meta name="twitter:url" content="${escapeHtml(redirectUrl)}">
   <meta name="twitter:title" content="Critique sur Factiony">
-  <meta name="twitter:description" content="Découvrez cette critique de jeu sur Factiony, la plateforme de recommandation de jeux vidéo.">
-  <meta name="twitter:image" content="${ogImageUrl}">
-
+  <meta name="twitter:description" content="Découvrez cette critique de jeu sur Factiony.">
+  <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}">
   <title>Critique sur Factiony</title>
-
-  <!-- Auto-redirect after meta tags are read -->
-  <meta http-equiv="refresh" content="0;url=${redirectUrl}">
-
-  <script>
-    // JavaScript redirect as backup
-    window.location.replace('${redirectUrl}');
-  </script>
+  <meta http-equiv="refresh" content="0;url=${escapeHtml(redirectUrl)}">
 </head>
 <body>
-  <p>Redirection vers <a href="${redirectUrl}">la critique</a>...</p>
+  <p>Redirection vers <a href="${escapeHtml(redirectUrl)}">la critique</a>...</p>
 </body>
 </html>`;
 
-  return new Response(html, {
-    status: 200,
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'public, max-age=3600',
-    },
-  });
+    return new Response(html, {
+      status: 200,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "public, max-age=300",
+      },
+    });
+  } catch (err: any) {
+    const errorHtml = `<!doctype html><html><head><meta charset="utf-8"><title>Edge crash</title></head>
+<body style="font-family:system-ui;padding:24px">
+<h2>Edge function crashed</h2>
+<p><b>pathname:</b> ${escapeHtml(pathname)}</p>
+<p><b>reviewId:</b> ${escapeHtml(reviewId)}</p>
+<pre style="white-space:pre-wrap;background:#111;color:#ddd;padding:12px;border-radius:8px">${escapeHtml(
+      String(err?.stack || err?.message || err)
+    )}</pre>
+</body></html>`;
+    return new Response(errorHtml, {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+  }
 };
+
