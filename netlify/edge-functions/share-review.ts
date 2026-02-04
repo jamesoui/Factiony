@@ -43,13 +43,6 @@ const resp = await fetch(restUrl, {
   },
 });
 
-  const resp = await fetch(restUrl, {
-    headers: {
-      apikey: supabaseKey,
-      Authorization: `Bearer ${supabaseKey}`,
-    },
-  });
-
   const bodyText = await resp.text();
   let gameSlug: string | null = null;
 
