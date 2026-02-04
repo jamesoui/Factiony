@@ -34,9 +34,14 @@ reviewId=${reviewId}`,
   }
 
   // Fetch game_slug
-  const restUrl = `${supabaseUrl}/rest/v1/game_ratings?id=eq.${encodeURIComponent(
-    reviewId
-  )}&select=game_slug`;
+const restUrl = `${supabaseUrl}/rest/v1/game_ratings?id=eq.${encodeURIComponent(reviewId)}&select=game_slug,game_id`;
+
+const resp = await fetch(restUrl, {
+  headers: {
+    apikey: supabaseKey,
+    Authorization: `Bearer ${supabaseKey}`,
+  },
+});
 
   const resp = await fetch(restUrl, {
     headers: {
@@ -49,15 +54,23 @@ reviewId=${reviewId}`,
   let gameSlug: string | null = null;
 
   if (resp.ok) {
-    try {
-      const data = JSON.parse(bodyText);
-      if (Array.isArray(data) && data[0]?.game_slug) {
-        gameSlug = String(data[0].game_slug);
+  try {
+    const data = JSON.parse(bodyText);
+
+    if (Array.isArray(data) && data[0]) {
+      const slug = data[0].game_slug ? String(data[0].game_slug) : null;
+      const gid  = data[0].game_id   ? String(data[0].game_id)   : null;
+
+      if (slug) {
+        // format attendu par ton app : slug-id
+        gameSlug = gid ? `${slug}-${gid}` : slug;
       }
-    } catch {
-      // ignore
     }
+
+  } catch {
+    // ignore
   }
+}
 
   if (!gameSlug) {
     return new Response(
