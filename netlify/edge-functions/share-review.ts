@@ -14,10 +14,25 @@ export default async (request: Request, context: Context) => {
   console.log('[share-review] Processing review:', reviewId);
 
   // Get Supabase environment variables
-  const supabaseUrl = Deno.env.get('SUPABASE_URL') || 'https://ffcocumtwoyydgsuhwxi.supabase.co';
-  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
+const supabaseUrl =
+  Deno.env.get("SUPABASE_URL") ||
+  Deno.env.get("VITE_SUPABASE_URL") ||
+  "https://ffcocumtwoyydgsuhwxi.supabase.co";
 
-  let gameSlug = null;
+const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const anonKey = Deno.env.get("VITE_SUPABASE_ANON_KEY");
+
+// Use service role first (server), fallback to anon
+const supabaseKey = serviceRoleKey || anonKey;
+
+if (!supabaseKey) {
+  return new Response(
+    "Missing Supabase key (SUPABASE_SERVICE_ROLE_KEY or VITE_SUPABASE_ANON_KEY)",
+    { status: 200, headers: { "content-type": "text/plain; charset=utf-8" } }
+  );
+}
+
+let gameSlug = null;
 
   // Try to fetch the game slug from Supabase
   if (supabaseAnonKey) {
@@ -26,9 +41,9 @@ export default async (request: Request, context: Context) => {
         `${supabaseUrl}/rest/v1/game_ratings?id=eq.${reviewId}&select=game_slug`,
         {
           headers: {
-            'apikey': supabaseAnonKey,
-            'Authorization': `Bearer ${supabaseAnonKey}`,
-          },
+  apikey: supabaseKey,
+  Authorization: `Bearer ${supabaseKey}`,
+},
         }
       );
 
