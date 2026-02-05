@@ -1,5 +1,5 @@
 function escapeHtml(s: string) {
-  return s
+  return (s || "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -12,18 +12,34 @@ function truncate(s: string, max: number) {
   return t.length <= max ? t : t.slice(0, max - 1).trimEnd() + "…";
 }
 
-function looksLikeSlugId(slug: string) {
-  // ex: uncharted-the-lost-legacy-21926
-  return /-\d+$/.test(slug);
+function isBotUA(ua: string) {
+  const u = (ua || "").toLowerCase();
+  return (
+    u.includes("facebookexternalhit") ||
+    u.includes("facebot") ||
+    u.includes("twitterbot") ||
+    u.includes("slackbot") ||
+    u.includes("discordbot") ||
+    u.includes("whatsapp") ||
+    u.includes("telegrambot") ||
+    u.includes("linkedinbot") ||
+    u.includes("pinterest") ||
+    u.includes("embedly") ||
+    u.includes("googlebot") ||
+    u.includes("bingbot")
+  );
 }
 
 export default async (request: Request) => {
   const url = new URL(request.url);
   const pathname = url.pathname;
 
-  // Extract review ID from /share/review/:id and sanitize "<uuid>" just in case
+  // /share/review/:id
   const rawId = pathname.split("/").filter(Boolean).pop() || "";
   const reviewId = rawId.replace(/^<|>$/g, "").trim();
+
+  const ua = request.headers.get("user-agent") || "";
+  const isBot = isBotUA(ua);
 
   // Netlify Edge env API
   // @ts-ignore
@@ -38,6 +54,9 @@ export default async (request: Request) => {
   const anonKey = envGet("VITE_SUPABASE_ANON_KEY");
   const supabaseKey = serviceRoleKey || anonKey;
 
+  const siteUrl = "https://factiony.com";
+  const fallbackImage = `${siteUrl}/logo-factiony.png`;
+
   // Sanity endpoint
   if (reviewId === "test") {
     return new Response(`EDGE_SHARE_OK ${pathname}`, {
@@ -46,121 +65,35 @@ export default async (request: Request) => {
     });
   }
 
-  // Fail closed (prod)
-  if (!reviewId || !supabaseKey) {
-    return Response.redirect("https://factiony.com/", 302);
-  }
-
-  // Helper: Supabase REST GET
-  const sbGet = async (path: string) => {
-    const resp = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
+  // HEAD: don't crash
+  if (request.method === "HEAD") {
+    return new Response(null, {
+      status: 200,
       headers: {
-        apikey: supabaseKey,
-        Authorization: `Bearer ${supabaseKey}`,
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "public, max-age=60",
       },
     });
-    const text = await resp.text();
-    return { ok: resp.ok, status: resp.status, text };
-  };
-
-  // 1) Fetch review info
-  const reviewSelect = "id,game_slug,game_id,user_id,rating,review_text";
-  const reviewRes = await sbGet(
-    `game_ratings?id=eq.${encodeURIComponent(reviewId)}&select=${encodeURIComponent(
-      reviewSelect
-    )}`
-  );
-
-  if (!reviewRes.ok) {
-    return Response.redirect("https://factiony.com/", 302);
   }
 
-  let reviewRow: any = null;
-  try {
-    const data = JSON.parse(reviewRes.text);
-    if (Array.isArray(data) && data[0]) reviewRow = data[0];
-  } catch {
-    // ignore
-  }
+  const buildHtml = (opts: {
+    redirectUrl: string;
+    ogTitle: string;
+    ogDescription: string;
+    ogImage: string;
+    doRedirect: boolean;
+  }) => {
+    const { redirectUrl, ogTitle, ogDescription, ogImage, doRedirect } = opts;
 
-  if (!reviewRow?.game_slug) {
-    return Response.redirect("https://factiony.com/", 302);
-  }
+    const metaRefresh = doRedirect
+      ? `<meta http-equiv="refresh" content="0;url=${escapeHtml(redirectUrl)}" />`
+      : "";
 
-  // game_slug in DB is expected to be base slug (without -id), but we harden it.
-  const baseSlug = String(reviewRow.game_slug);
+    const jsRedirect = doRedirect
+      ? `<script>location.replace(${JSON.stringify(redirectUrl)});</script>`
+      : "";
 
-  const gid = reviewRow.game_id != null ? String(reviewRow.game_id) : "";
-  const userId = reviewRow.user_id != null ? String(reviewRow.user_id) : "";
-  const rating = reviewRow.rating != null ? String(reviewRow.rating) : "";
-  const reviewText = reviewRow.review_text != null ? String(reviewRow.review_text) : "";
-
-  // Build the route expected by your app:
-  // - if baseSlug already ends with -digits, keep as-is
-  // - else if gid exists, append -gid
-  // - else keep slug only
-  const gamePath = looksLikeSlugId(baseSlug)
-    ? baseSlug
-    : gid
-    ? `${baseSlug}-${gid}`
-    : baseSlug;
-
-  const redirectUrl = `https://factiony.com/game/${gamePath}?tab=reviews&review=${encodeURIComponent(
-    reviewId
-  )}`;
-
-  // 2) Fetch username (optional)
-  let username = "un membre";
-  if (userId) {
-    const userRes = await sbGet(
-      `users?id=eq.${encodeURIComponent(userId)}&select=username`
-    );
-    if (userRes.ok) {
-      try {
-        const u = JSON.parse(userRes.text);
-        if (Array.isArray(u) && u[0]?.username) username = String(u[0].username);
-      } catch {
-        // ignore
-      }
-    }
-  }
-
-  // 3) Fetch game name + background image (optional)
-  // IMPORTANT: we query games by the BASE slug (without -id), because your games table uses slug.
-  let gameName = baseSlug;
-  let backgroundImage: string | null = null;
-
-  const gameRes = await sbGet(
-    `games?slug=eq.${encodeURIComponent(baseSlug)}&select=name,background_image,slug`
-  );
-  if (gameRes.ok) {
-    try {
-      const g = JSON.parse(gameRes.text);
-      if (Array.isArray(g) && g[0]) {
-        if (g[0].name) gameName = String(g[0].name);
-        if (g[0].background_image) backgroundImage = String(g[0].background_image);
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  // OG content
-  const titleParts = [`${gameName}`, `critique de ${username}`];
-  if (rating) titleParts.push(`(${rating}/5)`);
-  const ogTitle = titleParts.join(" — ");
-
-  const ogDescription = truncate(
-    reviewText || `Découvrez une critique sur Factiony à propos de ${gameName}.`,
-    180
-  );
-
-  // ✅ Crucial: don't use /og/review/*.png since it's disabled
-  const fallbackImage = "https://factiony.com/logo-factiony.png";
-  const ogImage = backgroundImage || fallbackImage;
-
-  // HTML response for crawlers + instant redirect for users
-  const html = `<!doctype html>
+    return `<!doctype html>
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
@@ -180,13 +113,133 @@ export default async (request: Request) => {
   <meta name="twitter:description" content="${escapeHtml(ogDescription)}" />
   <meta name="twitter:image" content="${escapeHtml(ogImage)}" />
 
-  <meta http-equiv="refresh" content="0;url=${escapeHtml(redirectUrl)}" />
+  ${metaRefresh}
 </head>
 <body>
-  <p>Redirection… <a href="${escapeHtml(redirectUrl)}">ouvrir la critique</a></p>
-  <script>location.replace(${JSON.stringify(redirectUrl)});</script>
+  <p>Ouvrir : <a href="${escapeHtml(redirectUrl)}">${escapeHtml(redirectUrl)}</a></p>
+  ${jsRedirect}
 </body>
 </html>`;
+  };
+
+  // If missing key or bad id: bots still need OG (no 302)
+  if (!reviewId || !supabaseKey) {
+    const redirectUrl = siteUrl;
+    const html = buildHtml({
+      redirectUrl,
+      ogTitle: "Critique sur Factiony",
+      ogDescription: "Découvrez une critique de jeu sur Factiony.",
+      ogImage: fallbackImage,
+      doRedirect: !isBot,
+    });
+
+    return new Response(html, {
+      status: 200,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "public, max-age=60",
+      },
+    });
+  }
+
+  const sbGet = async (path: string) => {
+    const resp = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
+      headers: {
+        apikey: supabaseKey,
+        Authorization: `Bearer ${supabaseKey}`,
+      },
+    });
+    const text = await resp.text();
+    return { ok: resp.ok, text };
+  };
+
+  // 1) review
+  const reviewSelect = "id,game_slug,game_id,user_id,rating,review_text";
+  const reviewRes = await sbGet(
+    `game_ratings?id=eq.${encodeURIComponent(reviewId)}&select=${encodeURIComponent(reviewSelect)}`
+  );
+
+  let r: any = null;
+  if (reviewRes.ok) {
+    try {
+      const arr = JSON.parse(reviewRes.text);
+      if (Array.isArray(arr) && arr[0]) r = arr[0];
+    } catch {}
+  }
+
+  // If not found: still provide OG page
+  if (!r?.game_slug) {
+    const redirectUrl = siteUrl;
+    const html = buildHtml({
+      redirectUrl,
+      ogTitle: "Critique sur Factiony",
+      ogDescription: "Découvrez une critique de jeu sur Factiony.",
+      ogImage: fallbackImage,
+      doRedirect: !isBot,
+    });
+
+    return new Response(html, {
+      status: 200,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "public, max-age=60",
+      },
+    });
+  }
+
+  const slug = String(r.game_slug);
+  const gid = r.game_id != null ? String(r.game_id) : "";
+  const userId = r.user_id != null ? String(r.user_id) : "";
+  const rating = r.rating != null ? String(r.rating) : "";
+  const reviewText = r.review_text != null ? String(r.review_text) : "";
+
+  const gamePath = gid ? `${slug}-${gid}` : slug;
+  const redirectUrl = `${siteUrl}/game/${gamePath}?tab=reviews&review=${encodeURIComponent(reviewId)}`;
+
+  // 2) username
+  let username = "un membre";
+  if (userId) {
+    const userRes = await sbGet(
+      `users?id=eq.${encodeURIComponent(userId)}&select=username`
+    );
+    if (userRes.ok) {
+      try {
+        const u = JSON.parse(userRes.text);
+        if (Array.isArray(u) && u[0]?.username) username = String(u[0].username);
+      } catch {}
+    }
+  }
+
+  // 3) game (image + name)
+  let gameName = slug;
+  let ogImage = fallbackImage;
+
+  const gameRes = await sbGet(
+    `games?slug=eq.${encodeURIComponent(slug)}&select=name,background_image,slug`
+  );
+  if (gameRes.ok) {
+    try {
+      const g = JSON.parse(gameRes.text);
+      if (Array.isArray(g) && g[0]) {
+        if (g[0].name) gameName = String(g[0].name);
+        if (g[0].background_image) ogImage = String(g[0].background_image);
+      }
+    } catch {}
+  }
+
+  const ogTitle = `${gameName} — critique de ${username}${rating ? ` (${rating}/5)` : ""}`;
+  const ogDescription = truncate(
+    reviewText || `Découvrez une critique sur Factiony à propos de ${gameName}.`,
+    180
+  );
+
+  const html = buildHtml({
+    redirectUrl,
+    ogTitle,
+    ogDescription,
+    ogImage,
+    doRedirect: !isBot, // bots: no redirect
+  });
 
   return new Response(html, {
     status: 200,
