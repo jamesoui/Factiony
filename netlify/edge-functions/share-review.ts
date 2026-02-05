@@ -12,33 +12,36 @@ function truncate(s: string, max: number) {
   return t.length <= max ? t : t.slice(0, max - 1).trimEnd() + "…";
 }
 
-function isProbablyBot(ua: string) {
+function isSocialBot(ua: string) {
   const u = (ua || "").toLowerCase();
   return (
     u.includes("facebookexternalhit") ||
     u.includes("facebot") ||
     u.includes("twitterbot") ||
-    u.includes("discordbot") ||
     u.includes("slackbot") ||
-    u.includes("linkedinbot") ||
+    u.includes("discordbot") ||
     u.includes("whatsapp") ||
     u.includes("telegrambot") ||
-    u.includes("googlebot") ||
-    u.includes("bingbot")
+    u.includes("linkedinbot") ||
+    u.includes("pinterest") ||
+    u.includes("skypeuripreview") ||
+    u.includes("embedly") ||
+    u.includes("googlebot")
   );
 }
 
 export default async (request: Request) => {
   const url = new URL(request.url);
   const pathname = url.pathname;
-  const ua = request.headers.get("user-agent") || "";
-  const bot = isProbablyBot(ua);
 
   // Extract review ID from /share/review/:id and sanitize "<uuid>" just in case
   const rawId = pathname.split("/").filter(Boolean).pop() || "";
   const reviewId = rawId.replace(/^<|>$/g, "").trim();
 
-  // Netlify Edge env API
+  const ua = request.headers.get("user-agent") || "";
+  const bot = isSocialBot(ua);
+
+  // Netlify Edge env API (reliable)
   // @ts-ignore
   const envGet = (k: string) => (globalThis as any).Netlify?.env?.get?.(k);
 
@@ -63,7 +66,7 @@ export default async (request: Request) => {
     });
   }
 
-  // Fail closed (prod)
+  // Fail closed
   if (!reviewId || !supabaseKey) {
     return Response.redirect("https://factiony.com/", 302);
   }
@@ -83,9 +86,7 @@ export default async (request: Request) => {
   // 1) Fetch review info
   const reviewSelect = "id,game_slug,game_id,user_id,rating,review_text";
   const reviewRes = await sbGet(
-    `game_ratings?id=eq.${encodeURIComponent(reviewId)}&select=${encodeURIComponent(
-      reviewSelect
-    )}`
+    `game_ratings?id=eq.${encodeURIComponent(reviewId)}&select=${encodeURIComponent(reviewSelect)}`
   );
 
   if (!reviewRes.ok) {
@@ -111,14 +112,9 @@ export default async (request: Request) => {
   const reviewText = reviewRow.review_text != null ? String(reviewRow.review_text) : "";
 
   const gamePath = gid ? `${slug}-${gid}` : slug;
-
-  // ✅ Destination (app)
   const redirectUrl = `https://factiony.com/game/${gamePath}?tab=reviews&review=${encodeURIComponent(
     reviewId
   )}`;
-
-  // ✅ IMPORTANT: URL que Meta doit considérer comme "la page"
-  const shareUrl = `https://factiony.com${pathname}`;
 
   // 2) Fetch username (optional)
   let username = "un membre";
@@ -168,9 +164,12 @@ export default async (request: Request) => {
   const fallbackImage = "https://factiony.com/logo-factiony.png";
   const ogImage = backgroundImage || fallbackImage;
 
-  // HTML response for crawlers + redirect for users
-  // NOTE: on garde la redirection JS/refresh (ok pour UX)
-  // mais on donne aux bots une page stable avec og:url = shareUrl
+  // For real users: redirect immediately (UX)
+  if (!bot) {
+    return Response.redirect(redirectUrl, 302);
+  }
+
+  // For bots: HTML with OG tags (no JS redirect)
   const html = `<!doctype html>
 <html lang="fr">
 <head>
@@ -178,28 +177,23 @@ export default async (request: Request) => {
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>${escapeHtml(ogTitle)}</title>
 
-  <link rel="canonical" href="${escapeHtml(shareUrl)}" />
-
   <meta property="og:type" content="article" />
   <meta property="og:site_name" content="Factiony" />
-  <meta property="og:url" content="${escapeHtml(shareUrl)}" />
+  <meta property="og:url" content="${escapeHtml(url.href)}" />
   <meta property="og:title" content="${escapeHtml(ogTitle)}" />
   <meta property="og:description" content="${escapeHtml(ogDescription)}" />
+
   <meta property="og:image" content="${escapeHtml(ogImage)}" />
   <meta property="og:image:secure_url" content="${escapeHtml(ogImage)}" />
   <meta property="og:image:type" content="image/jpeg" />
 
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:url" content="${escapeHtml(shareUrl)}" />
   <meta name="twitter:title" content="${escapeHtml(ogTitle)}" />
   <meta name="twitter:description" content="${escapeHtml(ogDescription)}" />
   <meta name="twitter:image" content="${escapeHtml(ogImage)}" />
-
-  <meta http-equiv="refresh" content="0;url=${escapeHtml(redirectUrl)}" />
 </head>
 <body>
   <p>Ouvrir : <a href="${escapeHtml(redirectUrl)}">${escapeHtml(redirectUrl)}</a></p>
-  <script>location.replace(${JSON.stringify(redirectUrl)});</script>
 </body>
 </html>`;
 
@@ -207,14 +201,10 @@ export default async (request: Request) => {
     status: 200,
     headers: {
       "content-type": "text/html; charset=utf-8",
-
-      // ✅ éviter cache agressif des scrapers / comportements partiels
-      // - pour bots : no-store
-      // - pour humains : tu peux garder un petit cache si tu veux (ici 300)
-      "cache-control": bot ? "no-store" : "public, max-age=300",
-
-      // ✅ évite Range/Partial content chez certains scrapers
+      // Meta fait parfois des Range requests -> éviter les 206 bizarres
       "accept-ranges": "none",
+      // caching léger (bots re-scrapent souvent)
+      "cache-control": "public, max-age=300",
     },
   });
 };
