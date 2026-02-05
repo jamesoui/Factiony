@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Share2, Check, Copy, MessageCircle, Instagram, Download } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { trackEvent } from '../lib/analytics';
@@ -25,30 +25,38 @@ export const ShareReviewButton: React.FC<ShareReviewButtonProps> = ({
   const [copied, setCopied] = useState(false);
   const [instagramCopied, setInstagramCopied] = useState(false);
 
-  // Check if data is loaded and valid
-  const canShare = !!gameName && gameName !== "Loading..." && rating != null;
+  // Data readiness (for nicer texts only — NOT for disabling)
+  const hasRichData = !!gameName && gameName !== 'Loading...' && rating != null;
 
   // Build share URL - use /share/review/ for OG meta tags
-  const shareUrl = `https://factiony.com/share/review/${reviewId}`;
+  const shareUrl = useMemo(() => {
+    const origin =
+      typeof window !== 'undefined' && window.location?.origin
+        ? window.location.origin
+        : 'https://factiony.com';
+    return `${origin}/share/review/${reviewId}`;
+  }, [reviewId]);
 
   // Build share texts only when sharing (not during render)
-  const buildShareTitle = () => username && gameName && rating != null
-    ? `${username} • ${gameName} • ${rating}/5`
-    : `Critique sur Factiony`;
+  const buildShareTitle = () => {
+    if (username && gameName && rating != null) return `${username} • ${gameName} • ${rating}/5`;
+    if (gameName) return `${gameName} — Critique sur Factiony`;
+    return `Critique sur Factiony`;
+  };
 
-  const buildShareText = () => gameName
-    ? (t('language') === 'fr'
-      ? `Découvrez ma critique de ${gameName} !`
-      : `Check out my review of ${gameName}!`)
-    : 'Découvrez cette critique sur Factiony !';
+  const buildShareText = () => {
+    if (gameName) {
+      return t('language') === 'fr'
+        ? `Découvrez ma critique de ${gameName} !`
+        : `Check out my review of ${gameName}!`;
+    }
+    return t('language') === 'fr'
+      ? `Découvrez cette critique sur Factiony !`
+      : `Check out this review on Factiony!`;
+  };
 
   const handleShare = async () => {
-    if (!canShare) {
-      console.log('Share disabled: data not ready');
-      return;
-    }
-
-    console.log('Share button clicked', { reviewId, shareUrl });
+    if (!reviewId) return;
 
     // Build texts at click time
     const shareTitle = buildShareTitle();
@@ -60,13 +68,11 @@ export const ShareReviewButton: React.FC<ShareReviewButtonProps> = ({
     // Try native share on mobile with HTTPS
     if (isMobile && navigator.share && window.location.protocol === 'https:') {
       try {
-        console.log('Using native share');
         await navigator.share({
           title: shareTitle,
           text: shareText,
           url: shareUrl
         });
-        console.log('Share successful');
 
         trackEvent('share_click', {
           network: 'native_share',
@@ -77,17 +83,20 @@ export const ShareReviewButton: React.FC<ShareReviewButtonProps> = ({
         return;
       } catch (err) {
         // If user cancels, don't show menu
-        if ((err as Error).name === 'AbortError') {
-          return;
-        }
-        // If share fails for any other reason, fall back to custom menu
+        if ((err as Error).name === 'AbortError') return;
+        // Otherwise fall back to custom menu
         console.log('Native share failed, using custom menu:', err);
       }
     }
 
-    // Show custom share menu on desktop or fallback
-    console.log('Using custom share menu');
-    setShowShareMenu(!showShareMenu);
+    // Desktop / fallback: open menu (never blocked)
+    setShowShareMenu((v) => !v);
+
+    trackEvent('share_click', {
+      network: 'open_menu',
+      game_id: gameId?.toString() || null,
+      review_id: reviewId
+    });
   };
 
   const copyToClipboard = async () => {
@@ -203,12 +212,9 @@ export const ShareReviewButton: React.FC<ShareReviewButtonProps> = ({
     <div className={`relative ${className}`}>
       <button
         onClick={handleShare}
-        disabled={!canShare}
-        className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-          canShare
-            ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer'
-            : 'bg-gray-600 text-gray-400 cursor-not-allowed'
-        }`}
+        className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
+          bg-blue-600 hover:bg-blue-700 text-white cursor-pointer`}
+        title={hasRichData ? '' : 'Les détails se chargent — le lien de partage fonctionne quand même.'}
       >
         <Share2 className="w-4 h-4" />
         <span>{t('review.shareReview')}</span>
@@ -216,10 +222,7 @@ export const ShareReviewButton: React.FC<ShareReviewButtonProps> = ({
 
       {showShareMenu && (
         <>
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setShowShareMenu(false)}
-          />
+          <div className="fixed inset-0 z-40" onClick={() => setShowShareMenu(false)} />
           <div className="absolute right-0 mt-2 w-48 bg-gray-800 rounded-lg shadow-lg border border-gray-700 z-50 overflow-hidden">
             <button
               onClick={copyToClipboard}
@@ -261,7 +264,7 @@ export const ShareReviewButton: React.FC<ShareReviewButtonProps> = ({
               className="w-full flex items-center space-x-3 px-4 py-3 hover:bg-gray-700 text-white transition-colors border-t border-gray-700"
             >
               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
               </svg>
               <span>Facebook</span>
             </button>
