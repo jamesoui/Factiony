@@ -1,0 +1,7 @@
+User-agent: *
+Disallow: /.netlify/
+Disallow: /.netlify/functions/
+Disallow: /api/
+Allow: /
+
+Sitemap: https://factiony.com/sitemap.xml

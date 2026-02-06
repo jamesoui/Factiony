@@ -31,3 +31,44 @@ path = "/share/review/*"
 [[edge_functions]]
 function = "og-review"
 path = "/og/review/*"
+# -----------------------------
+# Credit-saver: cache + bot hints
+# -----------------------------
+
+[[headers]]
+  for = "/.netlify/functions/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+
+# Assets build Vite (/dist/assets/*)
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Common image extensions anywhere (covers, OG, etc.)
+[[headers]]
+  for = "/*.png"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.jpg"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.jpeg"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.webp"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Pages jeux: cache 1 jour + tolérance 7 jours
+[[headers]]
+  for = "/game/*"
+  [headers.values]
+    Cache-Control = "public, max-age=86400, stale-while-revalidate=604800"
