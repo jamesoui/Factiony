@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import GameDetailModal from './GameDetailModal';
 import { slugToGameId } from '../utils/slugify';
+import { Helmet } from "react-helmet-async";
 
 interface GameModalRouteProps {
   children: React.ReactNode;
@@ -37,6 +38,16 @@ export const GameModalRoute: React.FC<GameModalRouteProps> = ({ children }) => {
   return (
     <>
       {children}
+
+      {/* 🔥 SEO TITLE DYNAMIQUE POUR LES PAGES JEU */}
+      {selectedGame && (
+        <Helmet>
+          <title>
+            {(selectedGame?.name || selectedGame?.title)} : Avis, Notes, Forum & Jeux Similaires | Factiony
+          </title>
+        </Helmet>
+      )}
+
       {selectedGame && (
         <GameDetailModal
           isOpen={true}
