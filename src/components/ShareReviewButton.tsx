@@ -20,13 +20,21 @@ export const ShareReviewButton: React.FC<ShareReviewButtonProps> = ({
   rating,
   className = ''
 }) => {
-  const { t } = useLanguage();
+  // Keep compatibility even if your LanguageContext only exposes { t }
+  const langCtx: any = useLanguage();
+  const t: (key: string) => string = langCtx.t;
+  const language: string = typeof langCtx.language === 'string' ? langCtx.language : 'fr';
+
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [copied, setCopied] = useState(false);
   const [instagramCopied, setInstagramCopied] = useState(false);
 
+  // Never use placeholder names in share texts
+  const safeGameName =
+    gameName && gameName !== 'Loading...' && gameName !== 'Chargement...' ? gameName : undefined;
+
   // Data readiness (for nicer texts only — NOT for disabling)
-  const hasRichData = !!gameName && gameName !== 'Loading...' && rating != null;
+  const hasRichData = !!safeGameName && rating != null;
 
   // Build share URL - use /share/review/ for OG meta tags
   const shareUrl = useMemo(() => {
@@ -39,18 +47,21 @@ export const ShareReviewButton: React.FC<ShareReviewButtonProps> = ({
 
   // Build share texts only when sharing (not during render)
   const buildShareTitle = () => {
-    if (username && gameName && rating != null) return `${username} • ${gameName} • ${rating}/5`;
-    if (gameName) return `${gameName} — Critique sur Factiony`;
+    if (username && safeGameName && rating != null) return `${username} • ${safeGameName} • ${rating}/5`;
+    if (safeGameName) return `${safeGameName} — Critique sur Factiony`;
     return `Critique sur Factiony`;
   };
 
   const buildShareText = () => {
-    if (gameName) {
-      return t('language') === 'fr'
-        ? `Découvrez ma critique de ${gameName} !`
-        : `Check out my review of ${gameName}!`;
+    const isFr = language === 'fr';
+
+    if (safeGameName) {
+      return isFr
+        ? `Découvrez ma critique de ${safeGameName} !`
+        : `Check out my review of ${safeGameName}!`;
     }
-    return t('language') === 'fr'
+
+    return isFr
       ? `Découvrez cette critique sur Factiony !`
       : `Check out this review on Factiony!`;
   };
@@ -211,6 +222,7 @@ export const ShareReviewButton: React.FC<ShareReviewButtonProps> = ({
   return (
     <div className={`relative ${className}`}>
       <button
+        type="button"
         onClick={handleShare}
         className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
           bg-blue-600 hover:bg-blue-700 text-white cursor-pointer`}
@@ -225,6 +237,7 @@ export const ShareReviewButton: React.FC<ShareReviewButtonProps> = ({
           <div className="fixed inset-0 z-40" onClick={() => setShowShareMenu(false)} />
           <div className="absolute right-0 mt-2 w-48 bg-gray-800 rounded-lg shadow-lg border border-gray-700 z-50 overflow-hidden">
             <button
+              type="button"
               onClick={copyToClipboard}
               className="w-full flex items-center space-x-3 px-4 py-3 hover:bg-gray-700 text-white transition-colors"
             >
@@ -242,6 +255,7 @@ export const ShareReviewButton: React.FC<ShareReviewButtonProps> = ({
             </button>
 
             <button
+              type="button"
               onClick={shareToWhatsApp}
               className="w-full flex items-center space-x-3 px-4 py-3 hover:bg-gray-700 text-white transition-colors border-t border-gray-700"
             >
@@ -250,6 +264,7 @@ export const ShareReviewButton: React.FC<ShareReviewButtonProps> = ({
             </button>
 
             <button
+              type="button"
               onClick={shareToX}
               className="w-full flex items-center space-x-3 px-4 py-3 hover:bg-gray-700 text-white transition-colors border-t border-gray-700"
             >
@@ -260,6 +275,7 @@ export const ShareReviewButton: React.FC<ShareReviewButtonProps> = ({
             </button>
 
             <button
+              type="button"
               onClick={shareToFacebook}
               className="w-full flex items-center space-x-3 px-4 py-3 hover:bg-gray-700 text-white transition-colors border-t border-gray-700"
             >
@@ -270,6 +286,7 @@ export const ShareReviewButton: React.FC<ShareReviewButtonProps> = ({
             </button>
 
             <button
+              type="button"
               onClick={copyForInstagram}
               className="w-full flex items-center space-x-3 px-4 py-3 hover:bg-gray-700 text-white transition-colors border-t border-gray-700"
             >
@@ -287,6 +304,7 @@ export const ShareReviewButton: React.FC<ShareReviewButtonProps> = ({
             </button>
 
             <button
+              type="button"
               onClick={downloadOgImage}
               className="w-full flex items-center space-x-3 px-4 py-3 hover:bg-gray-700 text-white transition-colors border-t border-gray-700"
             >
