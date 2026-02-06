@@ -306,7 +306,7 @@ const GameDetailModal: React.FC<GameDetailModalProps> = ({
 
     // Reset rating/review states
     setUserRating(null);
-    setTempRating(0);
+    setTempRating(userRating?.rating ?? 0);
     setTempReview('');
     setIsEditingRating(false);
     setIsSubmittingRating(false);
@@ -789,25 +789,35 @@ const GameDetailModal: React.FC<GameDetailModalProps> = ({
   const handleStartEditing = () => {
     if (!requireAuth()) return;
 
-    if (userRating) {
-      setTempRating(userRating.rating);
-      setTempReview(userRating.review_text || '');
-    } else {
-      setTempRating(0);
-      setTempReview('');
-    }
-    setIsEditingRating(true);
+    const ratingVal =
+  typeof userRating === 'number'
+    ? userRating
+    : (userRating as any)?.rating ?? 0;
+
+const reviewVal =
+  typeof userRating === 'object' && userRating
+    ? ((userRating as any).review_text || '')
+    : '';
+
+setTempRating(ratingVal);
+setTempReview(reviewVal);
+setIsEditingRating(true);
   };
 
   const handleCancelEditing = () => {
     setIsEditingRating(false);
-    if (userRating) {
-      setTempRating(userRating.rating);
-      setTempReview(userRating.review_text || '');
-    } else {
-      setTempRating(0);
-      setTempReview('');
-    }
+    const ratingVal =
+  typeof userRating === 'number'
+    ? userRating
+    : (userRating as any)?.rating ?? 0;
+
+const reviewVal =
+  typeof userRating === 'object' && userRating
+    ? ((userRating as any).review_text || '')
+    : '';
+
+setTempRating(ratingVal);
+setTempReview(reviewVal);
   };
 
   const renderStars = (rating: number) => {
