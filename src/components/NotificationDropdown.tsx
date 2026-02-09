@@ -5,6 +5,7 @@ import { getUserNotifications, markNotificationAsRead, UserNotification } from '
 import { useLanguage } from '../contexts/LanguageContext';
 import { formatDistanceToNow } from 'date-fns';
 import { fr, enUS } from 'date-fns/locale';
+import AvatarDisplay from './AvatarDisplay';
 
 interface NotificationDropdownProps {
   isOpen: boolean;
@@ -111,19 +112,11 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
               className={`px-4 py-3 hover:bg-gray-700 border-b border-gray-700 last:border-b-0 cursor-pointer ${!notif.read ? 'bg-red-900/20 border-l-4 border-l-red-500' : ''}`}
             >
               <div className="flex items-start space-x-3">
-                {notif.actor?.avatar_url ? (
-                  <img
-                    src={notif.actor.avatar_url}
-                    alt={notif.actor.username}
-                    className="w-8 h-8 rounded-full"
-                  />
-                ) : (
-                  <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
-                    <span className="text-xs font-medium text-gray-400">
-                      {notif.actor?.username[0].toUpperCase()}
-                    </span>
-                  </div>
-                )}
+                <AvatarDisplay
+  avatarUrl={notif.actor?.avatar_url}
+  username={notif.actor?.username || ''}
+  size="medium"
+/>
                 <div className="flex-1">
                   <p className="text-sm text-gray-300">{notif.message}</p>
                   <p className="text-xs text-gray-500 mt-1">

@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { Camera, Save, X, Upload, Plus, Trash2, Crown } from 'lucide-react';
+import { Camera, Save, X, Upload, Plus, Trash2, Crown, Loader } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { mockGames } from '../../data/mockData';
+import { supabase } from '../../lib/supabaseClient';
+import AvatarDisplay from '../AvatarDisplay';
 
 interface ProfileEditViewProps {
   onViewChange?: (view: string) => void;
@@ -28,24 +30,13 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [newListName, setNewListName] = useState('');
   const [showAddList, setShowAddList] = useState(false);
   const [editingListId, setEditingListId] = useState<string | null>(null);
   const [selectedGamesForList, setSelectedGamesForList] = useState<Record<string, string[]>>({});
   const [gameSearchQuery, setGameSearchQuery] = useState<Record<string, string>>({});
-
-  const defaultAvatars = [
-    'https://images.pexels.com/photos/442576/pexels-photo-442576.jpeg?auto=compress&cs=tinysrgb&w=150',
-    'https://images.pexels.com/photos/1337247/pexels-photo-1337247.jpeg?auto=compress&cs=tinysrgb&w=150',
-    'https://images.pexels.com/photos/1298601/pexels-photo-1298601.jpeg?auto=compress&cs=tinysrgb&w=150',
-    'https://images.pexels.com/photos/3165335/pexels-photo-3165335.jpeg?auto=compress&cs=tinysrgb&w=150',
-    'https://images.pexels.com/photos/1174746/pexels-photo-1174746.jpeg?auto=compress&cs=tinysrgb&w=150',
-    'https://images.pexels.com/photos/1670977/pexels-photo-1670977.jpeg?auto=compress&cs=tinysrgb&w=150',
-    'https://images.pexels.com/photos/3861969/pexels-photo-3861969.jpeg?auto=compress&cs=tinysrgb&w=150',
-    'https://images.pexels.com/photos/2047905/pexels-photo-2047905.jpeg?auto=compress&cs=tinysrgb&w=150',
-    'https://images.pexels.com/photos/3945313/pexels-photo-3945313.jpeg?auto=compress&cs=tinysrgb&w=150',
-    'https://images.pexels.com/photos/1714208/pexels-photo-1714208.jpeg?auto=compress&cs=tinysrgb&w=150'
-  ];
 
   const defaultBanners = [
     'https://images.pexels.com/photos/1174746/pexels-photo-1174746.jpeg?auto=compress&cs=tinysrgb&w=1200',
@@ -74,12 +65,75 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
     }
   };
 
-  const handleFileUpload = (type: 'avatar' | 'banner') => {
+  const handleAvatarUpload = async () => {
+    if (!user?.uid) {
+      setUploadError('Vous devez être connecté pour télécharger une photo');
+      return;
+    }
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/jpeg,image/jpg,image/png,image/webp';
+
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      if (file.size > 2097152) {
+        setUploadError('Le fichier est trop volumineux. Taille maximale: 2 MB');
+        return;
+      }
+
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+      if (!allowedTypes.includes(file.type)) {
+        setUploadError('Format non supporté. Formats acceptés: JPG, PNG, WEBP');
+        return;
+      }
+
+      try {
+        setUploadLoading(true);
+        setUploadError(null);
+
+        const fileExt = file.name.split('.').pop();
+        const filePath = `${user.uid}/profile.${fileExt}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(filePath, file, {
+            upsert: true,
+            contentType: file.type
+          });
+
+        if (uploadError) throw uploadError;
+
+        const { data: publicUrlData } = supabase.storage
+          .from('avatars')
+          .getPublicUrl(filePath);
+
+        const avatarUrl = publicUrlData.publicUrl;
+        handleInputChange('avatar', avatarUrl);
+
+        const { db } = await import('../../lib/database');
+        await db.sql.updateUser(user.uid, { avatar_url: avatarUrl });
+
+        console.log('✅ Avatar téléchargé avec succès:', avatarUrl);
+      } catch (error: any) {
+        console.error('❌ Erreur upload avatar:', error);
+        setUploadError(error.message || 'Erreur lors du téléchargement');
+      } finally {
+        setUploadLoading(false);
+      }
+    };
+
+    input.click();
+  };
+
+  const handleFileUpload = (type: 'banner') => {
     if (!user?.isPremium) {
       alert('Cette fonctionnalité est réservée aux membres Premium !');
       return;
     }
-    
+
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
@@ -102,14 +156,14 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
       alert('Les listes illimitées sont réservées aux membres Premium !');
       return;
     }
-    
+
     if (newListName.trim()) {
       const newList = {
         id: Date.now().toString(),
         name: newListName.trim(),
         games: []
       };
-      
+
       handleInputChange('customLists', [...formData.customLists, newList]);
       setSelectedGamesForList(prev => ({
         ...prev,
@@ -137,6 +191,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
       return newState;
     });
   };
+
   const addGameToList = (listId: string, gameId: string) => {
     const currentGames = selectedGamesForList[listId] || [];
     if (currentGames.length < 4 && !currentGames.includes(gameId)) {
@@ -144,10 +199,9 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
         ...prev,
         [listId]: [...currentGames, gameId]
       }));
-      
-      // Mettre à jour la liste dans formData
-      const updatedLists = formData.customLists.map(list => 
-        list.id === listId 
+
+      const updatedLists = formData.customLists.map(list =>
+        list.id === listId
           ? { ...list, games: [...currentGames, gameId] }
           : list
       );
@@ -158,15 +212,14 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
   const removeGameFromList = (listId: string, gameId: string) => {
     const currentGames = selectedGamesForList[listId] || [];
     const updatedGames = currentGames.filter(id => id !== gameId);
-    
+
     setSelectedGamesForList(prev => ({
       ...prev,
       [listId]: updatedGames
     }));
-    
-    // Mettre à jour la liste dans formData
-    const updatedLists = formData.customLists.map(list => 
-      list.id === listId 
+
+    const updatedLists = formData.customLists.map(list =>
+      list.id === listId
         ? { ...list, games: updatedGames }
         : list
     );
@@ -178,7 +231,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
     if (!query.trim()) {
       return mockGames.slice(0, 20);
     }
-    
+
     return mockGames.filter(game =>
       game.title.toLowerCase().includes(query.toLowerCase()) ||
       game.developer.toLowerCase().includes(query.toLowerCase()) ||
@@ -259,61 +312,54 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
         <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-white">{t('profileEdit.profilePicture')}</h2>
-            {user?.isPremium && (
-              <div className="flex items-center space-x-2 text-yellow-400">
-                <Crown className="h-4 w-4" />
-                <span className="text-sm">{t('nav.premium')}</span>
-              </div>
-            )}
-          </div>
-          
-          <div className="flex items-center space-x-6 mb-6">
-            <div className="relative">
-              <img
-                src={formData.avatar}
-                alt="Avatar"
-                className="w-20 h-20 rounded-full object-cover"
-              />
-              <button className="absolute -bottom-2 -right-2 bg-blue-600 rounded-full p-2 hover:bg-blue-700 transition-colors">
-                <Camera className="h-4 w-4 text-white" />
-              </button>
-            </div>
-            <div>
-              <h3 className="font-medium text-white">{t('profileEdit.changePhoto')}</h3>
-              <p className="text-sm text-gray-400">
-                {t('profileEdit.chooseAvatar')}
-                {user?.isPremium && ` ${t('profileEdit.importImage')}`}
-              </p>
-              {user?.isPremium && (
-                <button
-                  onClick={() => handleFileUpload('avatar')}
-                  className="mt-2 flex items-center space-x-2 px-3 py-1 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg text-sm transition-colors"
-                >
-                  <Upload className="h-4 w-4" />
-                  <span>{t('profileEdit.uploadImage')}</span>
-                </button>
-              )}
-            </div>
           </div>
 
-          <div className="grid grid-cols-5 gap-3">
-            {defaultAvatars.map((avatar, index) => (
+          <div className="flex items-center space-x-6 mb-6">
+            <div className="relative">
+              <AvatarDisplay
+                avatarUrl={formData.avatar}
+                username={user?.username || ''}
+                size="xl"
+                className="border-2 border-gray-600"
+              />
               <button
-                key={index}
-                onClick={() => handleInputChange('avatar', avatar)}
-                className={`relative rounded-full overflow-hidden border-2 transition-all ${
-                  formData.avatar === avatar
-                    ? 'border-blue-500 ring-2 ring-blue-500 ring-opacity-50'
-                    : 'border-gray-600 hover:border-gray-500'
-                }`}
+                onClick={handleAvatarUpload}
+                disabled={uploadLoading}
+                className="absolute -bottom-2 -right-2 bg-orange-600 rounded-full p-2 hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <img
-                  src={avatar}
-                  alt={`Avatar ${index + 1}`}
-                  className="w-full h-full object-cover aspect-square"
-                />
+                {uploadLoading ? (
+                  <Loader className="h-4 w-4 text-white animate-spin" />
+                ) : (
+                  <Camera className="h-4 w-4 text-white" />
+                )}
               </button>
-            ))}
+            </div>
+            <div className="flex-1">
+              <h3 className="font-medium text-white mb-2">Photo de profil</h3>
+              <p className="text-sm text-gray-400 mb-3">
+                JPG, PNG ou WEBP. Taille maximale : 2 MB
+              </p>
+              <button
+                onClick={handleAvatarUpload}
+                disabled={uploadLoading}
+                className="flex items-center space-x-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm transition-colors"
+              >
+                {uploadLoading ? (
+                  <>
+                    <Loader className="h-4 w-4 animate-spin" />
+                    <span>Téléchargement...</span>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-4 w-4" />
+                    <span>Télécharger une photo</span>
+                  </>
+                )}
+              </button>
+              {uploadError && (
+                <p className="text-sm text-red-400 mt-2">{uploadError}</p>
+              )}
+            </div>
           </div>
         </div>
 
@@ -327,7 +373,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
                 <span className="text-sm">Premium</span>
               </div>
             </div>
-            
+
             <div className="mb-6">
               <div className="relative h-32 rounded-lg overflow-hidden mb-4">
                 <img
@@ -335,7 +381,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
                   alt="Bannière"
                   className="w-full h-full object-cover"
                 />
-                <button 
+                <button
                   onClick={() => handleFileUpload('banner')}
                   className="absolute top-2 right-2 bg-blue-600 rounded-full p-2 hover:bg-blue-700 transition-colors"
                 >
@@ -379,7 +425,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
         {/* Informations personnelles */}
         <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
           <h2 className="text-xl font-semibold text-white mb-4">Informations personnelles</h2>
-          
+
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -440,10 +486,9 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
                 </button>
               </div>
             </div>
-            
+
             {showAddList && (
               <div className="mb-4 p-4 bg-gray-700 rounded-lg">
-                {/* Suggestions de noms de listes */}
                 <div className="mb-4">
                   <h3 className="text-sm font-medium text-gray-300 mb-2">Suggestions de noms :</h3>
                   <div className="flex flex-wrap gap-2">
@@ -471,7 +516,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
                     ))}
                   </div>
                 </div>
-                
+
                 <div className="flex space-x-3">
                   <input
                     type="text"
@@ -524,8 +569,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
                         </button>
                       </div>
                     </div>
-                    
-                    {/* Jeux sélectionnés */}
+
                     {selectedGamesForList[list.id] && selectedGamesForList[list.id].length > 0 && (
                       <div className="mb-3">
                         <div className="grid grid-cols-4 gap-2">
@@ -553,8 +597,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
                         </div>
                       </div>
                     )}
-                    
-                    {/* Interface d'édition */}
+
                     {editingListId === list.id && (
                       <div className="border-t border-gray-600 pt-3">
                         <div className="mb-3">
@@ -576,7 +619,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
                           {getFilteredGamesForList(list.id).map(game => {
                             const isSelected = selectedGamesForList[list.id]?.includes(game.id);
                             const canAdd = (selectedGamesForList[list.id]?.length || 0) < 4;
-                            
+
                             return (
                               <button
                                 key={game.id}
@@ -589,10 +632,10 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
                                 }}
                                 disabled={!isSelected && !canAdd}
                                 className={`relative group transition-all ${
-                                  isSelected 
-                                    ? 'ring-2 ring-green-500' 
-                                    : canAdd 
-                                    ? 'hover:ring-2 hover:ring-blue-500' 
+                                  isSelected
+                                    ? 'ring-2 ring-green-500'
+                                    : canAdd
+                                    ? 'hover:ring-2 hover:ring-blue-500'
                                     : 'opacity-50 cursor-not-allowed'
                                 }`}
                               >
@@ -635,7 +678,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
         {/* Préférences */}
         <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
           <h2 className="text-xl font-semibold text-white mb-4">Préférences</h2>
-          
+
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">

@@ -1,35 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
-  User,
-  Settings,
   Calendar,
   Trophy,
   Star,
   Users,
   Heart,
-  Play,
   Check,
-  Plus,
   Monitor,
   Crown,
   Edit,
   UserPlus,
-  UserCheck,
   X
 } from 'lucide-react';
-import GameCard from '../GameCard';
 import { SimpleGameCard } from '../SimpleGameCard';
 import GameDetailModal from '../GameDetailModal';
 import FollowersListView from './FollowersListView';
 import FollowsListView from './FollowsListView';
 import { useAuth } from '../../contexts/AuthContext';
-import StatsChart from '../StatsChart';
 import {
   getUserById,
   UserProfile,
   isFollowing as checkIfFollowing,
-  followUser,
-  unfollowUser,
   getFollowerCount,
   getFollowingCount
 } from '../../lib/api/users';
@@ -44,6 +35,7 @@ import Spinner from '../Spinner';
 import { Game } from '../../types';
 import { getGameById } from '../../apiClient';
 import { supabase } from '../../lib/supabaseClient';
+import AvatarDisplay from '../AvatarDisplay';
 
 interface UserProfileViewProps {
   userId: string; // can be UUID OR username (for /u/:username)
@@ -65,7 +57,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
   onGameClick,
   onUserClick
 }) => {
-  const { user: currentUser, updateUser } = useAuth();
+  const { user: currentUser } = useAuth();
   const [showStats, setShowStats] = useState(false);
   const [isFollowingState, setIsFollowingState] = useState(false);
   const [profileUser, setProfileUser] = useState<UserProfile | null>(null);
@@ -80,6 +72,22 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
   const [gameCovers, setGameCovers] = useState<Record<string, string>>({});
   const [showFollowersModal, setShowFollowersModal] = useState(false);
   const [showFollowingModal, setShowFollowingModal] = useState(false);
+
+  // ✅ Important: sur /u/:username, UserPage t'envoie parfois onClose={() => {}}
+  // Donc on force un fallback "back" si onClose ne fait rien / est absent.
+  const handleClose = useMemo(() => {
+    if (onClose) return onClose;
+
+    // fallback safe: back si possible sinon home
+    return () => {
+      try {
+        if (window.history.length > 1) window.history.back();
+        else window.location.href = '/';
+      } catch {
+        window.location.href = '/';
+      }
+    };
+  }, [onClose]);
 
   const resolveUserId = async (idOrUsername: string): Promise<string | null> => {
     const raw = (idOrUsername ?? '').trim();
@@ -123,7 +131,6 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
             coversMap[gameId] = coverUrl;
           }
         });
-        console.log('Fetched covers:', coversMap);
         setGameCovers(coversMap);
       }
     } catch (err) {
@@ -133,8 +140,6 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
 
   const handleGameClick = async (gameId: string, gameName?: string, gameSlug?: string) => {
     try {
-      console.log('Opening game details for:', gameId);
-
       const gameData = await getGameById(gameId);
 
       if (gameData) {
@@ -167,33 +172,20 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
         setLoading(true);
 
         const resolvedId = await resolveUserId(userId);
-        console.log('Loading profile for:', { input: userId, resolvedId });
-
         if (!resolvedId) {
-          console.warn('User not found (could not resolve):', userId);
           setProfileUser(null);
           return;
         }
 
         const userData = await getUserById(resolvedId);
-
         if (!userData) {
-          console.warn('User not found by id:', resolvedId);
           setProfileUser(null);
           return;
         }
 
-        console.log('User data loaded:', {
-          id: userData.id,
-          username: userData.username,
-          is_private: userData.is_private
-        });
-
         if (userData.is_private && currentUser?.uid !== resolvedId) {
-          console.log('Profile is private, checking if following...');
           const following = await checkIfFollowing(resolvedId);
           if (!following) {
-            console.warn('User is not following this private profile');
             setProfileUser(null);
             return;
           }
@@ -201,50 +193,21 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
 
         setProfileUser(userData);
 
-        console.log('Loading follower/following counts...');
         const [followers, following, isFollowingUser] = await Promise.all([
-          getFollowerCount(resolvedId).catch(err => {
-            console.error('Failed to load follower count:', err);
-            return 0;
-          }),
-          getFollowingCount(resolvedId).catch(err => {
-            console.error('Failed to load following count:', err);
-            return 0;
-          }),
-          currentUser
-            ? checkIfFollowing(resolvedId).catch(err => {
-                console.error('Failed to check if following:', err);
-                return false;
-              })
-            : Promise.resolve(false)
+          getFollowerCount(resolvedId).catch(() => 0),
+          getFollowingCount(resolvedId).catch(() => 0),
+          currentUser ? checkIfFollowing(resolvedId).catch(() => false) : Promise.resolve(false)
         ]);
 
-        console.log('Profile loaded successfully:', { followers, following, isFollowingUser });
         setFollowerCount(followers);
         setFollowingCount(following);
         setIsFollowingState(isFollowingUser);
 
-        console.log('Loading user games and stats...');
         const [games, stats, activity] = await Promise.all([
-          getUserRatedGames(resolvedId).catch(err => {
-            console.error('Failed to load rated games:', err);
-            return [];
-          }),
-          getUserStats(resolvedId).catch(err => {
-            console.error('Failed to load user stats:', err);
-            return null;
-          }),
-          getRecentUserActivity(resolvedId, 5).catch(err => {
-            console.error('Failed to load recent activity:', err);
-            return [];
-          })
+          getUserRatedGames(resolvedId).catch(() => []),
+          getUserStats(resolvedId).catch(() => null),
+          getRecentUserActivity(resolvedId, 5).catch(() => [])
         ]);
-
-        console.log('User data loaded:', {
-          gamesCount: games.length,
-          hasStats: !!stats,
-          activityCount: activity.length
-        });
 
         setRatedGames(games);
         setUserStats(stats);
@@ -255,15 +218,10 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
         activity.forEach(g => allGameIds.add(g.game_id));
 
         if (allGameIds.size > 0) {
-          console.log('Fetching covers for games:', Array.from(allGameIds));
           await fetchGameCovers(Array.from(allGameIds));
         }
       } catch (error) {
-        console.error('Error loading user profile:', {
-          error,
-          message: error instanceof Error ? error.message : 'Unknown error',
-          userId
-        });
+        console.error('Error loading user profile:', error);
         setProfileUser(null);
       } finally {
         setLoading(false);
@@ -275,20 +233,13 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
 
   const handleFollow = async () => {
     if (!currentUser) {
-      console.warn('[FOLLOW] Cannot follow: user not logged in');
       alert('Vous devez être connecté pour suivre un utilisateur');
       return;
     }
-
-    if (!profileUser) {
-      console.warn('[FOLLOW] Cannot follow: profile not loaded');
-      return;
-    }
+    if (!profileUser) return;
 
     const targetId = profileUser.id;
-
     if (currentUser.uid === targetId) {
-      console.warn('[FOLLOW] Cannot follow: attempting to follow self');
       alert('Vous ne pouvez pas vous suivre vous-même');
       return;
     }
@@ -299,19 +250,11 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
       } = await supabase.auth.getUser();
 
       if (!sessionUser) {
-        console.error('[FOLLOW] No Supabase session found');
         alert('Vous devez être connecté pour suivre un utilisateur');
         return;
       }
 
-      console.log('[FOLLOW] Session user:', { id: sessionUser.id, email: sessionUser.email });
-
       if (isFollowingState) {
-        console.log('[UNFOLLOW] Attempting to unfollow:', {
-          follower_id: sessionUser.id,
-          followed_id: targetId
-        });
-
         setIsFollowingState(false);
         setFollowerCount(prev => Math.max(0, prev - 1));
 
@@ -321,53 +264,19 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
           .eq('follower_id', sessionUser.id)
           .eq('followed_id', targetId);
 
-        if (error) {
-          console.error('[UNFOLLOW ERROR]', {
-            code: error.code,
-            message: error.message,
-            details: error.details,
-            hint: error.hint,
-            follower_id: sessionUser.id,
-            followed_id: targetId
-          });
-          throw new Error(error.message || 'Échec du désabonnement');
-        }
-
-        console.log('[UNFOLLOW] Successfully unfollowed');
+        if (error) throw new Error(error.message || 'Échec du désabonnement');
       } else {
-        const payload = {
-          follower_id: sessionUser.id,
-          followed_id: targetId
-        };
-
-        console.log('[FOLLOW] Attempting to follow with payload:', payload);
-
         setIsFollowingState(true);
         setFollowerCount(prev => prev + 1);
 
-        const { error } = await supabase.from('follows').insert(payload);
+        const { error } = await supabase
+          .from('follows')
+          .insert({ follower_id: sessionUser.id, followed_id: targetId });
 
-        if (error) {
-          console.error('[FOLLOW ERROR]', {
-            code: error.code,
-            message: error.message,
-            details: error.details,
-            hint: error.hint,
-            payload,
-            sessionUserId: sessionUser.id
-          });
-          throw new Error(error.message || 'Échec du suivi');
-        }
-
-        console.log('[FOLLOW] Successfully followed');
+        if (error) throw new Error(error.message || 'Échec du suivi');
       }
     } catch (error: any) {
-      console.error('[FOLLOW] Error toggling follow:', {
-        error,
-        message: error?.message || 'Unknown error',
-        target: profileUser?.id
-      });
-
+      console.error('[FOLLOW] Error toggling follow:', error);
       alert(error?.message || 'Une erreur est survenue lors de la modification du suivi');
     }
   };
@@ -379,10 +288,10 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
       </div>
     );
 
-    return isOpen && onClose ? (
+    return isOpen ? (
       <div className="fixed inset-0 z-50 overflow-y-auto">
         <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-          <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={onClose}></div>
+          <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={handleClose}></div>
           <div className="inline-block w-full max-w-4xl my-8 overflow-hidden text-left align-middle transition-all transform bg-gray-800 shadow-xl rounded-2xl border border-gray-700">
             <div className="p-6">{loadingContent}</div>
           </div>
@@ -400,15 +309,15 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
       </div>
     );
 
-    return isOpen && onClose ? (
+    return isOpen ? (
       <div className="fixed inset-0 z-50 overflow-y-auto">
         <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-          <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={onClose}></div>
+          <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={handleClose}></div>
           <div className="inline-block w-full max-w-4xl my-8 overflow-hidden text-left align-middle transition-all transform bg-gray-800 shadow-xl rounded-2xl border border-gray-700">
             <div className="p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-bold text-white">Profil utilisateur</h2>
-                <button onClick={onClose} className="text-gray-400 hover:text-gray-300">
+                <button onClick={handleClose} className="text-gray-400 hover:text-gray-300">
                   <X className="h-6 w-6" />
                 </button>
               </div>
@@ -427,12 +336,13 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
 
   const ProfileContent = () => (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 bg-gray-900 min-h-screen">
-      {isOpen && onClose && (
+      {isOpen && (
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-white">Profil de {profileUser.username}</h1>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-full transition-colors"
+            aria-label="Fermer"
           >
             <X className="h-6 w-6" />
           </button>
@@ -440,20 +350,21 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
       )}
 
       <div className="relative bg-gradient-to-r from-purple-600 via-orange-600 to-red-600 rounded-2xl p-8 mb-8 text-white overflow-hidden">
-        {profileUser?.banner_url && (
+        {profileUser.banner_url && (
           <img src={profileUser.banner_url} alt="Bannière" className="absolute inset-0 w-full h-full object-cover" />
         )}
+
         <div className="relative z-10">
           <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-6">
             <div className="relative">
-              <img
-                src={
-                  profileUser.avatar_url ||
-                  `https://api.dicebear.com/7.x/avataaars/svg?seed=${profileUser.username}`
-                }
-                alt={profileUser.username}
-                className="w-24 h-24 rounded-full border-4 border-white shadow-lg object-cover"
+              {/* ✅ Bolt: plus de dicebear => AvatarDisplay */}
+              <AvatarDisplay
+                avatarUrl={profileUser.avatar_url}
+                username={profileUser.username}
+                size="xl"
+                className="border-4 border-white shadow-lg"
               />
+
               {profileUser.is_premium && (
                 <div className="absolute -top-2 -right-2 bg-yellow-500 rounded-full p-2">
                   <Crown className="h-4 w-4 text-white" />
@@ -464,6 +375,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
             <div className="flex-1">
               <div className="flex items-center space-x-3 mb-2">
                 <h1 className="text-3xl font-bold">{profileUser.username}</h1>
+
                 {profileUser.is_verified && (
                   <svg className="w-6 h-6 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
                     <path
@@ -473,6 +385,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
                     />
                   </svg>
                 )}
+
                 {profileUser.is_premium && (
                   <span className="bg-yellow-500 text-yellow-900 px-3 py-1 rounded-full text-sm font-bold">
                     PREMIUM
@@ -490,6 +403,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
                   <Users className="h-4 w-4" />
                   <span>{followerCount} abonnés</span>
                 </button>
+
                 <button
                   onClick={() => setShowFollowingModal(true)}
                   className="flex items-center space-x-1 hover:text-orange-400 transition-colors cursor-pointer"
@@ -497,6 +411,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
                   <Users className="h-4 w-4" />
                   <span>{followingCount} abonnements</span>
                 </button>
+
                 <div className="flex items-center space-x-1">
                   <Calendar className="h-4 w-4" />
                   <span>Membre depuis {new Date(profileUser.join_date).getFullYear()}</span>
@@ -509,7 +424,9 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
                 <button
                   onClick={handleFollow}
                   className={`flex items-center justify-center space-x-2 px-4 py-2 rounded-lg font-medium transition-all ${
-                    isFollowingState ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'
+                    isFollowingState
+                      ? 'bg-green-600 hover:bg-green-700 text-white'
+                      : 'bg-blue-600 hover:bg-blue-700 text-white'
                   }`}
                 >
                   {isFollowingState ? (
@@ -644,7 +561,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
             <div
               className="fixed inset-0 transition-opacity bg-gray-900 bg-opacity-75"
               onClick={() => setShowFollowersModal(false)}
-            ></div>
+            />
             <div className="inline-block w-full max-w-4xl my-8 overflow-hidden text-left align-middle transition-all transform bg-gray-900 shadow-xl rounded-2xl border border-gray-700">
               <div className="flex items-center justify-between p-6 border-b border-gray-700">
                 <h2 className="text-xl font-bold text-white">Followers</h2>
@@ -675,7 +592,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
             <div
               className="fixed inset-0 transition-opacity bg-gray-900 bg-opacity-75"
               onClick={() => setShowFollowingModal(false)}
-            ></div>
+            />
             <div className="inline-block w-full max-w-4xl my-8 overflow-hidden text-left align-middle transition-all transform bg-gray-900 shadow-xl rounded-2xl border border-gray-700">
               <div className="flex items-center justify-between p-6 border-b border-gray-700">
                 <h2 className="text-xl font-bold text-white">Abonnements</h2>
@@ -702,11 +619,11 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
     </div>
   );
 
-  if (isOpen && onClose) {
+  if (isOpen) {
     return (
       <div className="fixed inset-0 z-50 overflow-y-auto">
         <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-          <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={onClose}></div>
+          <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={handleClose}></div>
           <div className="inline-block w-full max-w-6xl my-8 overflow-hidden text-left align-middle transition-all transform bg-gray-800 shadow-xl rounded-2xl border border-gray-700">
             <div className="max-h-[90vh] overflow-y-auto">
               <ProfileContent />

@@ -8,6 +8,7 @@ import NotificationDropdown from './NotificationDropdown';
 import LanguageSelector from './LanguageSelector';
 import UserLink from './UserLink';
 import { getUnreadNotificationsCount } from '../lib/api/notifications';
+import AvatarDisplay from './AvatarDisplay';
 
 const Header: React.FC = () => {
   const navigate = useNavigate();
@@ -165,15 +166,11 @@ const Header: React.FC = () => {
                 onClick={handleUserMenuToggle}
                 className="flex items-center gap-1 p-2 text-gray-300 hover:text-white hover:bg-gray-800 rounded-full transition-colors"
               >
-                {user?.avatar ? (
-                  <img
-                    src={user.avatar}
-                    alt={user.username}
-                    className="w-6 h-6 rounded-full object-cover"
-                  />
-                ) : (
-                  <User className="h-5 w-5" />
-                )}
+                <AvatarDisplay
+  avatarUrl={user?.avatar}
+  username={user?.username || ''}
+  size="small"
+/>
                 {user?.isPremium && <Crown className="h-4 w-4 text-yellow-500" />}
               </button>
 
