@@ -4,7 +4,7 @@ export interface UserNotification {
   id: string;
   user_id: string;
   actor_id: string;
-  notification_type: 'comment_like' | 'comment_reply' | 'activity_like' | 'activity_comment' | 'new_follower';
+  notification_type: 'comment_like' | 'comment_reply' | 'activity_like' | 'activity_comment' | 'new_follower' | 'review_like' | 'review_comment';
   reference_id: string;
   reference_type: 'activity' | 'comment';
   message: string;

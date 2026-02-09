@@ -39,9 +39,11 @@ const NotificationsView: React.FC<NotificationsViewProps> = ({ onUserClick, onVi
     switch (type) {
       case 'comment_like':
       case 'activity_like':
+      case 'review_like':
         return Heart;
       case 'comment_reply':
       case 'activity_comment':
+      case 'review_comment':
         return MessageCircle;
       case 'new_follower':
         return Users;
@@ -54,9 +56,11 @@ const NotificationsView: React.FC<NotificationsViewProps> = ({ onUserClick, onVi
     switch (type) {
       case 'comment_like':
       case 'activity_like':
+      case 'review_like':
         return 'text-red-500';
       case 'comment_reply':
       case 'activity_comment':
+      case 'review_comment':
         return 'text-green-500';
       case 'new_follower':
         return 'text-blue-500';
@@ -69,9 +73,11 @@ const NotificationsView: React.FC<NotificationsViewProps> = ({ onUserClick, onVi
     switch (notificationType) {
       case 'comment_like':
       case 'activity_like':
+      case 'review_like':
         return 'like';
       case 'comment_reply':
       case 'activity_comment':
+      case 'review_comment':
         return 'comment';
       case 'new_follower':
         return 'follow';
@@ -90,11 +96,15 @@ const NotificationsView: React.FC<NotificationsViewProps> = ({ onUserClick, onVi
 
     switch (notification.notification_type) {
       case 'new_follower':
-        navigate(`/profile/${notification.actor_id}`);
+        if (notification.actor?.username) {
+          navigate(`/u/${notification.actor.username}`);
+        }
         break;
 
       case 'activity_like':
       case 'activity_comment':
+      case 'review_like':
+      case 'review_comment':
         if (notification.game_slug && notification.review_id) {
           navigate(`/game/${notification.game_slug}?review=${notification.review_id}`);
         }

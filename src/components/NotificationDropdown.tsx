@@ -57,11 +57,15 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
 
     switch (notification.notification_type) {
       case 'new_follower':
-        navigate(`/profile/${notification.actor_id}`);
+        if (notification.actor?.username) {
+          navigate(`/u/${notification.actor.username}`);
+        }
         break;
 
       case 'activity_like':
       case 'activity_comment':
+      case 'review_like':
+      case 'review_comment':
         if (notification.game_slug && notification.review_id) {
           navigate(`/game/${notification.game_slug}?review=${notification.review_id}`);
         }
