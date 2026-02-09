@@ -13,6 +13,7 @@ interface ProfileEditViewProps {
 const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
   const { user, updateUser } = useAuth();
   const { t } = useLanguage();
+
   const [formData, setFormData] = useState({
     username: user?.username || '',
     bio: user?.bio || '',
@@ -22,7 +23,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
     customLists: user?.customLists || [],
     preferences: {
       privacy: user?.preferences?.privacy || 'public',
-      notifications: user?.preferences?.notifications || true,
+      notifications: user?.preferences?.notifications ?? true,
       language: user?.preferences?.language || 'fr'
     }
   });
@@ -30,8 +31,10 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
   const [newListName, setNewListName] = useState('');
   const [showAddList, setShowAddList] = useState(false);
   const [editingListId, setEditingListId] = useState<string | null>(null);
@@ -50,82 +53,128 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
   const handleInputChange = (field: string, value: any) => {
     if (field.includes('.')) {
       const [parent, child] = field.split('.');
-      setFormData(prev => ({
+      setFormData((prev) => ({
         ...prev,
         [parent]: {
-          ...prev[parent as keyof typeof prev],
+          ...(prev as any)[parent],
           [child]: value
         }
       }));
     } else {
-      setFormData(prev => ({
+      setFormData((prev) => ({
         ...prev,
         [field]: value
       }));
     }
   };
 
+  /**
+   * ✅ Avatar upload (X-style)
+   * - Uses Supabase session user as source of truth (auth.uid())
+   * - Uploads to bucket: avatars/{uid}/profile.{ext}
+   * - upsert=true to replace
+   * - Updates public.users.avatar_url
+   * - Updates AuthContext user.avatar for immediate UI refresh
+   */
   const handleAvatarUpload = async () => {
-    if (!user?.uid) {
-      setUploadError('Vous devez être connecté pour télécharger une photo');
-      return;
+    try {
+      setUploadError(null);
+
+      const {
+        data: { user: sessionUser },
+        error: sessionErr
+      } = await supabase.auth.getUser();
+
+      if (sessionErr) console.error('[AvatarUpload] auth.getUser error:', sessionErr);
+
+      if (!sessionUser?.id) {
+        setUploadError('Vous devez être connecté pour télécharger une photo');
+        return;
+      }
+
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/jpeg,image/jpg,image/png,image/webp';
+
+      input.onchange = async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) return;
+
+        // Size: 2MB
+        if (file.size > 2 * 1024 * 1024) {
+          setUploadError('Le fichier est trop volumineux. Taille maximale : 2 MB');
+          return;
+        }
+
+        // Type
+        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+        if (!allowedTypes.includes(file.type)) {
+          setUploadError('Format non supporté. Formats acceptés : JPG, PNG, WEBP');
+          return;
+        }
+
+        try {
+          setUploadLoading(true);
+          setUploadError(null);
+
+          const fileExt = (file.name.split('.').pop() || 'jpg').toLowerCase();
+          const filePath = `${sessionUser.id}/profile.${fileExt}`;
+
+          const { error: uploadErr } = await supabase.storage
+            .from('avatars')
+            .upload(filePath, file, {
+              upsert: true,
+              contentType: file.type,
+              cacheControl: '3600'
+            });
+
+          if (uploadErr) {
+            console.error('[AvatarUpload] storage upload error:', uploadErr);
+            throw uploadErr;
+          }
+
+          const { data: publicUrlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
+          const avatarUrl = publicUrlData?.publicUrl;
+
+          if (!avatarUrl) throw new Error("Impossible d'obtenir l'URL publique de l'avatar");
+
+          // Update form state immediately
+          handleInputChange('avatar', avatarUrl);
+
+          // Persist to DB
+          const { error: updateErr } = await supabase
+            .from('users')
+            .update({ avatar_url: avatarUrl })
+            .eq('id', sessionUser.id);
+
+          if (updateErr) {
+            console.error('[AvatarUpload] users update error:', updateErr);
+            throw updateErr;
+          }
+
+          // Update auth context for header etc.
+          if (user) {
+            updateUser({
+              ...user,
+              avatar: avatarUrl
+            });
+          }
+
+          console.log('✅ Avatar upload OK:', avatarUrl);
+        } catch (err: any) {
+          console.error('❌ Erreur upload avatar:', err);
+          setUploadError(err?.message || 'Erreur lors du téléchargement');
+        } finally {
+          setUploadLoading(false);
+        }
+      };
+
+      input.click();
+    } catch (err: any) {
+      console.error('❌ Erreur handleAvatarUpload:', err);
+      setUploadError(err?.message || 'Erreur lors du téléchargement');
+      setUploadLoading(false);
     }
-
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/jpeg,image/jpg,image/png,image/webp';
-
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-
-      if (file.size > 2097152) {
-        setUploadError('Le fichier est trop volumineux. Taille maximale: 2 MB');
-        return;
-      }
-
-      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-      if (!allowedTypes.includes(file.type)) {
-        setUploadError('Format non supporté. Formats acceptés: JPG, PNG, WEBP');
-        return;
-      }
-
-      try {
-        setUploadLoading(true);
-        setUploadError(null);
-
-        const fileExt = file.name.split('.').pop();
-        const filePath = `${user.uid}/profile.${fileExt}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from('avatars')
-          .upload(filePath, file, {
-            upsert: true,
-            contentType: file.type
-          });
-
-        if (uploadError) throw uploadError;
-
-        const { data: publicUrlData } = supabase.storage
-          .from('avatars')
-          .getPublicUrl(filePath);
-
-        const avatarUrl = publicUrlData.publicUrl;
-        handleInputChange('avatar', avatarUrl);
-
-        const { db } = await import('../../lib/database');
-        await db.sql.updateUser(user.uid, { avatar_url: avatarUrl });
-
-        console.log('✅ Avatar téléchargé avec succès:', avatarUrl);
-      } catch (error: any) {
-        console.error('❌ Erreur upload avatar:', error);
-        setUploadError(error.message || 'Erreur lors du téléchargement');
-      } finally {
-        setUploadLoading(false);
-      }
-    };
-
-    input.click();
   };
 
   const handleFileUpload = (type: 'banner') => {
@@ -139,14 +188,14 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
     input.accept = 'image/*';
     input.onchange = (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const result = e.target?.result as string;
-          handleInputChange(type, result);
-        };
-        reader.readAsDataURL(file);
-      }
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const result = evt.target?.result as string;
+        handleInputChange(type, result);
+      };
+      reader.readAsDataURL(file);
     };
     input.click();
   };
@@ -165,45 +214,51 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
       };
 
       handleInputChange('customLists', [...formData.customLists, newList]);
-      setSelectedGamesForList(prev => ({
+
+      setSelectedGamesForList((prev) => ({
         ...prev,
         [newList.id]: []
       }));
-      setGameSearchQuery(prev => ({
+
+      setGameSearchQuery((prev) => ({
         ...prev,
         [newList.id]: ''
       }));
+
       setNewListName('');
       setShowAddList(false);
     }
   };
 
   const removeCustomList = (listId: string) => {
-    handleInputChange('customLists', formData.customLists.filter(list => list.id !== listId));
-    setSelectedGamesForList(prev => {
-      const newState = { ...prev };
-      delete newState[listId];
-      return newState;
+    handleInputChange(
+      'customLists',
+      formData.customLists.filter((list: any) => list.id !== listId)
+    );
+
+    setSelectedGamesForList((prev) => {
+      const next = { ...prev };
+      delete next[listId];
+      return next;
     });
-    setGameSearchQuery(prev => {
-      const newState = { ...prev };
-      delete newState[listId];
-      return newState;
+
+    setGameSearchQuery((prev) => {
+      const next = { ...prev };
+      delete next[listId];
+      return next;
     });
   };
 
   const addGameToList = (listId: string, gameId: string) => {
     const currentGames = selectedGamesForList[listId] || [];
     if (currentGames.length < 4 && !currentGames.includes(gameId)) {
-      setSelectedGamesForList(prev => ({
+      setSelectedGamesForList((prev) => ({
         ...prev,
         [listId]: [...currentGames, gameId]
       }));
 
-      const updatedLists = formData.customLists.map(list =>
-        list.id === listId
-          ? { ...list, games: [...currentGames, gameId] }
-          : list
+      const updatedLists = formData.customLists.map((list: any) =>
+        list.id === listId ? { ...list, games: [...currentGames, gameId] } : list
       );
       handleInputChange('customLists', updatedLists);
     }
@@ -211,32 +266,31 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
 
   const removeGameFromList = (listId: string, gameId: string) => {
     const currentGames = selectedGamesForList[listId] || [];
-    const updatedGames = currentGames.filter(id => id !== gameId);
+    const updatedGames = currentGames.filter((id) => id !== gameId);
 
-    setSelectedGamesForList(prev => ({
+    setSelectedGamesForList((prev) => ({
       ...prev,
       [listId]: updatedGames
     }));
 
-    const updatedLists = formData.customLists.map(list =>
-      list.id === listId
-        ? { ...list, games: updatedGames }
-        : list
+    const updatedLists = formData.customLists.map((list: any) =>
+      list.id === listId ? { ...list, games: updatedGames } : list
     );
     handleInputChange('customLists', updatedLists);
   };
 
   const getFilteredGamesForList = (listId: string) => {
     const query = gameSearchQuery[listId] || '';
-    if (!query.trim()) {
-      return mockGames.slice(0, 20);
-    }
+    if (!query.trim()) return mockGames.slice(0, 20);
 
-    return mockGames.filter(game =>
-      game.title.toLowerCase().includes(query.toLowerCase()) ||
-      game.developer.toLowerCase().includes(query.toLowerCase()) ||
-      game.genres.some(genre => genre.toLowerCase().includes(query.toLowerCase()))
-    ).slice(0, 20);
+    return mockGames
+      .filter(
+        (game: any) =>
+          game.title.toLowerCase().includes(query.toLowerCase()) ||
+          game.developer.toLowerCase().includes(query.toLowerCase()) ||
+          game.genres.some((genre: string) => genre.toLowerCase().includes(query.toLowerCase()))
+      )
+      .slice(0, 20);
   };
 
   const handleSave = async () => {
@@ -275,8 +329,8 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
         username: updatedProfile.username,
         bio: updatedProfile.bio || '',
         location: updatedProfile.location || '',
-        avatar: updatedProfile.avatar_url || user.avatar,
-        banner: updatedProfile.banner_url || user.banner,
+        avatar: updatedProfile.avatar_url || '',
+        banner: updatedProfile.banner_url || '',
         customLists: formData.customLists,
         preferences: formData.preferences
       };
@@ -287,11 +341,8 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
 
       setTimeout(() => {
         setSaveSuccess(false);
-        if (onViewChange) {
-          onViewChange('profile');
-        }
+        onViewChange?.('profile');
       }, 1500);
-
     } catch (error: any) {
       console.error('❌ Erreur sauvegarde profil:', error);
       setSaveError(error.message || 'Erreur lors de la sauvegarde');
@@ -334,11 +385,11 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
                 )}
               </button>
             </div>
+
             <div className="flex-1">
               <h3 className="font-medium text-white mb-2">Photo de profil</h3>
-              <p className="text-sm text-gray-400 mb-3">
-                JPG, PNG ou WEBP. Taille maximale : 2 MB
-              </p>
+              <p className="text-sm text-gray-400 mb-3">JPG, PNG ou WEBP. Taille maximale : 2 MB</p>
+
               <button
                 onClick={handleAvatarUpload}
                 disabled={uploadLoading}
@@ -356,9 +407,8 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
                   </>
                 )}
               </button>
-              {uploadError && (
-                <p className="text-sm text-red-400 mt-2">{uploadError}</p>
-              )}
+
+              {uploadError && <p className="text-sm text-red-400 mt-2">{uploadError}</p>}
             </div>
           </div>
         </div>
@@ -376,11 +426,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
 
             <div className="mb-6">
               <div className="relative h-32 rounded-lg overflow-hidden mb-4">
-                <img
-                  src={formData.banner || defaultBanners[0]}
-                  alt="Bannière"
-                  className="w-full h-full object-cover"
-                />
+                <img src={formData.banner || defaultBanners[0]} alt="Bannière" className="w-full h-full object-cover" />
                 <button
                   onClick={() => handleFileUpload('banner')}
                   className="absolute top-2 right-2 bg-blue-600 rounded-full p-2 hover:bg-blue-700 transition-colors"
@@ -388,6 +434,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
                   <Upload className="h-4 w-4 text-white" />
                 </button>
               </div>
+
               <div className="flex items-center space-x-4">
                 <button
                   onClick={() => handleFileUpload('banner')}
@@ -411,11 +458,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
                       : 'border-gray-600 hover:border-gray-500'
                   }`}
                 >
-                  <img
-                    src={banner}
-                    alt={`Bannière ${index + 1}`}
-                    className="w-full h-full object-cover"
-                  />
+                  <img src={banner} alt={`Bannière ${index + 1}`} className="w-full h-full object-cover" />
                 </button>
               ))}
             </div>
@@ -428,9 +471,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Nom d'utilisateur
-              </label>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Nom d'utilisateur</label>
               <input
                 type="text"
                 value={formData.username}
@@ -440,9 +481,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Biographie
-              </label>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Biographie</label>
               <textarea
                 value={formData.bio}
                 onChange={(e) => handleInputChange('bio', e.target.value)}
@@ -453,9 +492,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Localisation
-              </label>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Localisation</label>
               <input
                 type="text"
                 value={formData.location}
@@ -502,10 +539,10 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
                       'Défis difficiles',
                       'Indie gems',
                       'Classiques incontournables',
-                      'Jeux d\'horreur',
+                      "Jeux d'horreur",
                       'RPG épiques',
                       'Jeux de course'
-                    ].map(suggestion => (
+                    ].map((suggestion) => (
                       <button
                         key={suggestion}
                         onClick={() => setNewListName(suggestion)}
@@ -547,12 +584,14 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
 
             <div className="space-y-3">
               {formData.customLists.length > 0 ? (
-                formData.customLists.map((list) => (
+                formData.customLists.map((list: any) => (
                   <div key={list.id} className="p-4 bg-gray-700 rounded-lg">
                     <div className="flex items-center justify-between mb-3">
                       <div>
                         <h3 className="font-medium text-white">{list.name}</h3>
-                        <p className="text-sm text-gray-400">{selectedGamesForList[list.id]?.length || 0}/4 jeux</p>
+                        <p className="text-sm text-gray-400">
+                          {selectedGamesForList[list.id]?.length || 0}/4 jeux
+                        </p>
                       </div>
                       <div className="flex items-center space-x-2">
                         <button
@@ -573,15 +612,11 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
                     {selectedGamesForList[list.id] && selectedGamesForList[list.id].length > 0 && (
                       <div className="mb-3">
                         <div className="grid grid-cols-4 gap-2">
-                          {selectedGamesForList[list.id].map(gameId => {
-                            const game = mockGames.find(g => g.id === gameId);
+                          {selectedGamesForList[list.id].map((gameId) => {
+                            const game = mockGames.find((g: any) => g.id === gameId);
                             return game ? (
                               <div key={gameId} className="relative group">
-                                <img
-                                  src={game.coverImage}
-                                  alt={game.title}
-                                  className="w-full h-12 object-cover rounded"
-                                />
+                                <img src={game.coverImage} alt={game.title} className="w-full h-12 object-cover rounded" />
                                 <button
                                   onClick={() => removeGameFromList(list.id, gameId)}
                                   className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
@@ -604,19 +639,23 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
                           <input
                             type="text"
                             value={gameSearchQuery[list.id] || ''}
-                            onChange={(e) => setGameSearchQuery(prev => ({
-                              ...prev,
-                              [list.id]: e.target.value
-                            }))}
+                            onChange={(e) =>
+                              setGameSearchQuery((prev) => ({
+                                ...prev,
+                                [list.id]: e.target.value
+                              }))
+                            }
                             placeholder="Rechercher un jeu..."
                             className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                         </div>
+
                         <h4 className="text-sm font-medium text-gray-300 mb-2">
                           Ajouter des jeux ({selectedGamesForList[list.id]?.length || 0}/4) :
                         </h4>
+
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-48 overflow-y-auto">
-                          {getFilteredGamesForList(list.id).map(game => {
+                          {getFilteredGamesForList(list.id).map((game: any) => {
                             const isSelected = selectedGamesForList[list.id]?.includes(game.id);
                             const canAdd = (selectedGamesForList[list.id]?.length || 0) < 4;
 
@@ -624,11 +663,8 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
                               <button
                                 key={game.id}
                                 onClick={() => {
-                                  if (isSelected) {
-                                    removeGameFromList(list.id, game.id);
-                                  } else if (canAdd) {
-                                    addGameToList(list.id, game.id);
-                                  }
+                                  if (isSelected) removeGameFromList(list.id, game.id);
+                                  else if (canAdd) addGameToList(list.id, game.id);
                                 }}
                                 disabled={!isSelected && !canAdd}
                                 className={`relative group transition-all ${
@@ -639,11 +675,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
                                     : 'opacity-50 cursor-not-allowed'
                                 }`}
                               >
-                                <img
-                                  src={game.coverImage}
-                                  alt={game.title}
-                                  className="w-full h-16 object-cover rounded"
-                                />
+                                <img src={game.coverImage} alt={game.title} className="w-full h-16 object-cover rounded" />
                                 {isSelected && (
                                   <div className="absolute inset-0 bg-green-600 bg-opacity-20 rounded flex items-center justify-center">
                                     <div className="bg-green-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">
@@ -681,9 +713,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Confidentialité du profil
-              </label>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Confidentialité du profil</label>
               <select
                 value={formData.preferences.privacy}
                 onChange={(e) => handleInputChange('preferences.privacy', e.target.value)}
@@ -696,9 +726,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Langue
-              </label>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Langue</label>
               <select
                 value={formData.preferences.language}
                 onChange={(e) => handleInputChange('preferences.language', e.target.value)}
@@ -715,7 +743,7 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
               <input
                 type="checkbox"
                 id="notifications"
-                checked={formData.preferences.notifications}
+                checked={!!formData.preferences.notifications}
                 onChange={(e) => handleInputChange('preferences.notifications', e.target.checked)}
                 className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
               />
@@ -743,13 +771,14 @@ const ProfileEditView: React.FC<ProfileEditViewProps> = ({ onViewChange }) => {
         {/* Boutons d'action */}
         <div className="flex justify-end space-x-4">
           <button
-            onClick={() => onViewChange && onViewChange('profile')}
+            onClick={() => onViewChange?.('profile')}
             disabled={isSaving}
             className="px-6 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center"
           >
             <X className="h-4 w-4 mr-2" />
             Annuler
           </button>
+
           <button
             onClick={handleSave}
             disabled={isSaving}
