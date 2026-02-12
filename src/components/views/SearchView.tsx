@@ -15,6 +15,7 @@ import { searchUsers, UserProfile, getFollowerCount, getFollowingCount } from '.
 import { calculateDisplayRating } from '../../lib/utils/ratingCalculator';
 import { TOP_100_GAMES } from '../../data/top100Games';
 import { gameToSlug } from '../../utils/slugify';
+import AdBanner from "../ads/AdBanner";
 
 interface SearchViewProps {
   initialQuery?: string;
@@ -690,84 +691,114 @@ const SearchView: React.FC<SearchViewProps> = ({ initialQuery = '', initialFilte
               )}
 
               {games.length > 0 && (
-            <>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-6">
-                {displayedGames.map((game) => {
-                  const excludedTags = ['steam', 'xbox', 'playstation', 'nintendo', 'controller', 'fps', 'achievements', 'cloud', 'vr', 'mobile', 'singleplayer', 'multiplayer', 'co-op'];
-                  const gameTags = Array.isArray(game.tags) ? game.tags : [];
-                  const filteredTags = gameTags
-                    .filter((tag: any) => {
-                      const tagName = typeof tag === 'string' ? tag : tag?.name;
-                      return tagName && !excludedTags.some(excluded => tagName.toLowerCase().includes(excluded));
-                    })
-                    .slice(0, 5);
+  <>
+    {(() => {
+      const SPLIT_INDEX = 15; // 3 lignes desktop (lg:grid-cols-5)
+      const firstBatch = displayedGames.slice(0, SPLIT_INDEX);
+      const secondBatch = displayedGames.slice(SPLIT_INDEX);
 
+      const renderGameItem = (game: any) => {
+        const excludedTags = [
+          'steam', 'xbox', 'playstation', 'nintendo', 'controller', 'fps',
+          'achievements', 'cloud', 'vr', 'mobile', 'singleplayer',
+          'multiplayer', 'co-op'
+        ];
+
+        const gameTags = Array.isArray(game.tags) ? game.tags : [];
+        const filteredTags = gameTags
+          .filter((tag: any) => {
+            const tagName = typeof tag === 'string' ? tag : tag?.name;
+            return tagName && !excludedTags.some(excluded => tagName.toLowerCase().includes(excluded));
+          })
+          .slice(0, 5);
+
+        return (
+          <div key={game.id} className="cursor-pointer">
+            <div onClick={() => handleGameClick(game)}>
+              <GameCard
+                game={{
+                  id: game.id.toString(),
+                  title: game.name,
+                  coverUrl: game.cover_url || game.background_image || '/placeholder.jpg',
+                  rating: 0,
+                  releaseDate: game.released || game.release_date || '',
+                  genres: Array.isArray(game.genres)
+                    ? game.genres.filter((g: any) => g && g.name).map((g: any) => g.name)
+                    : [],
+                  platforms: Array.isArray(game.platforms)
+                    ? game.platforms.filter((p: any) => p && p.platform && p.platform.name).map((p: any) => p.platform.name)
+                    : [],
+                  developer: game.developers?.[0]?.name || 'Unknown',
+                  publisher: game.publishers?.[0]?.name || 'Unknown',
+                  description: '',
+                  metacritic: game.metacritic
+                }}
+                onClick={() => handleGameClick(game)}
+              />
+            </div>
+
+            {filteredTags.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {filteredTags.map((tag: any, idx: number) => {
+                  const tagName = typeof tag === 'string' ? tag : tag?.name;
+                  const tagSlug = typeof tag === 'string' ? tag.toLowerCase() : tag?.slug;
                   return (
-                    <div key={game.id} className="cursor-pointer">
-                      <div onClick={() => handleGameClick(game)}>
-                        <GameCard
-                          game={{
-                            id: game.id.toString(),
-                            title: game.name,
-                            coverUrl: game.cover_url || game.background_image || '/placeholder.jpg',
-                            rating: 0,
-                            releaseDate: game.released || game.release_date || '',
-                            genres: Array.isArray(game.genres) ? game.genres.filter(g => g && g.name).map(g => g.name) : [],
-                            platforms: Array.isArray(game.platforms) ? game.platforms.filter(p => p && p.platform && p.platform.name).map(p => p.platform.name) : [],
-                            developer: game.developers?.[0]?.name || 'Unknown',
-                            publisher: game.publishers?.[0]?.name || 'Unknown',
-                            description: '',
-                            metacritic: game.metacritic
-                          }}
-                          onClick={() => handleGameClick(game)}
-                        />
-                      </div>
-                      {filteredTags.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {filteredTags.map((tag: any, idx: number) => {
-                            const tagName = typeof tag === 'string' ? tag : tag?.name;
-                            const tagSlug = typeof tag === 'string' ? tag.toLowerCase() : tag?.slug;
-                            return (
-                              <button
-                                key={`${tagSlug}-${idx}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const newTag = tagSlug || tagName.toLowerCase();
-                                  setDraftFilters({ ...draftFilters, tag: newTag });
-                                  setAppliedFilters({ ...appliedFilters, tag: newTag });
-                                  setPage(1);
-                                }}
-                                className="px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded text-[10px] hover:bg-blue-800/70 transition-colors"
-                              >
-                                {tagName}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
+                    <button
+                      key={`${tagSlug}-${idx}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const newTag = tagSlug || tagName.toLowerCase();
+                        setDraftFilters({ ...draftFilters, tag: newTag });
+                        setAppliedFilters({ ...appliedFilters, tag: newTag });
+                        setPage(1);
+                      }}
+                      className="px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded text-[10px] hover:bg-blue-800/70 transition-colors"
+                    >
+                      {tagName}
+                    </button>
                   );
                 })}
               </div>
-
-              {hasMore && !loading && (
-                <div className="flex justify-center">
-                  <button
-                    onClick={handleLoadMore}
-                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
-                  >
-                    Afficher plus
-                  </button>
-                </div>
-              )}
-
-              {loading && page > 1 && (
-                <div className="flex items-center justify-center py-4">
-                  <Loader className="h-12 w-12 text-orange-500 animate-spin" />
-                </div>
-              )}
-              </>
             )}
+          </div>
+        );
+      };
+
+      return (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-6">
+            {firstBatch.map(renderGameItem)}
+          </div>
+
+          {secondBatch.length > 0 && <AdBanner slot="9798609443" />}
+
+          {secondBatch.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-6">
+              {secondBatch.map(renderGameItem)}
+            </div>
+          )}
+        </>
+      );
+    })()}
+
+    {hasMore && !loading && (
+      <div className="flex justify-center">
+        <button
+          onClick={handleLoadMore}
+          className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
+        >
+          Afficher plus
+        </button>
+      </div>
+    )}
+
+    {loading && page > 1 && (
+      <div className="flex items-center justify-center py-4">
+        <Loader className="h-12 w-12 text-orange-500 animate-spin" />
+      </div>
+    )}
+  </>
+)}
             </>
           )}
         </div>

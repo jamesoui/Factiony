@@ -25,6 +25,7 @@ import { trackEvent } from '../lib/analytics';
 import { getSimilarGames } from '../lib/api/similarGames';
 import { gameToSlug } from '../utils/slugify';
 import { TOP_100_GAMES } from '../data/top100Games';
+import AdBanner from "./ads/AdBanner";
 
 // Composant pour gérer l'affichage des spoilers
 const SpoilerText: React.FC<{ content: string }> = ({ content }) => {
@@ -1338,7 +1339,7 @@ setTempReview(reviewVal);
                     )}
                   </div>
                 )}
-
+<AdBanner slot="9076652778" className="my-4" />
                 {/* Media Section - Screenshots and Videos */}
                 {!loadingFullGame && fullGame && (
                   <div className="mt-6 space-y-6">
