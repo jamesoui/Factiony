@@ -14,6 +14,7 @@ import { getMostFollowedUnreleasedGames } from '../../lib/api/gameFollows';
 import { gameDataCache } from '../../lib/gameDataCache';
 import { supabase } from '../../lib/supabaseClient';
 import { gameToSlug } from '../../utils/slugify';
+import AdBanner from "../ads/AdBanner";
 
 interface DiscoverViewProps {
   onViewChange?: (view: string, userId?: string) => void;
@@ -340,6 +341,8 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
           <p className="text-gray-400">Aucun jeu noté pour l'instant.</p>
         </div>
       )}
+
+<AdBanner slot="5751553228" className="my-4" />
 
       {user && (
         <FriendsActivitySection
