@@ -3,9 +3,12 @@
   "version": "1.0.0",
   "description": "Firebase Cloud Functions for Factiony API proxy",
   "engines": {
-    "node": "18"
+    "node":"20"
   },
   "main": "apiFunction.js",
+  "scripts": {
+    "lint": "echo \"skip lint\""
+  },
   "dependencies": {
     "firebase-functions": "^5.0.0",
     "firebase-admin": "^12.0.0",

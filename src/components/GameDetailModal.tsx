@@ -26,6 +26,7 @@ import { getSimilarGames } from '../lib/api/similarGames';
 import { gameToSlug } from '../utils/slugify';
 import { TOP_100_GAMES } from '../data/top100Games';
 import AdBanner from "./ads/AdBanner";
+import { Helmet } from "react-helmet-async";
 
 // Composant pour gérer l'affichage des spoilers
 const SpoilerText: React.FC<{ content: string }> = ({ content }) => {
@@ -192,6 +193,15 @@ const GameDetailModal: React.FC<GameDetailModalProps> = ({
   const [factionyAvgRating, setFactionyAvgRating] = useState<number | null>(null);
   const [showAllTags, setShowAllTags] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
+
+  // --- SEO: title onglet (évite "Loading...") ---
+  const gameName =
+    fullGame?.name ||
+    (game as any)?.name ||
+    (game as any)?.title ||
+    "Jeu";
+
+  const pageTitle = `${gameName} : Avis, Notes, Forum & Jeux Similaires | Factiony`;
 
   const API_URL = import.meta.env.VITE_API_URL ?? 'https://europe-west1-factiony-1fc0f.cloudfunctions.net/apiFunction';
   const FACTIONY_KEY = import.meta.env.VITE_FACTIONY_KEY ?? 'FACTIONY_KEY_35d39805f838ac70aa9dca01e4e3ff0764e638dd341728f4';
@@ -999,7 +1009,13 @@ setTempReview(reviewVal);
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
+  <div className="fixed inset-0 z-50 overflow-y-auto">
+
+    <Helmet>
+      <title>{pageTitle}</title>
+    </Helmet>
+
+    <div className="flex items-center justify-center min-h-screen px-4 pt-20 pb-20">
       <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
         <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={onClose}></div>
 

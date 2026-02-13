@@ -5,7 +5,7 @@ import { buildInstantGamingSearchUrl } from '../utils/instantGaming';
 interface BuyLink {
   name: string;
   store?: string;
-  url: string;
+  url: string | null;
 }
 
 interface BuyLinksProps {
@@ -19,16 +19,25 @@ const BuyLinks: React.FC<BuyLinksProps> = ({ buyLinks, stores, gameId, gameName 
   const useDirectLinks = Array.isArray(buyLinks) && buyLinks.length > 0;
   const linksToUse = useDirectLinks ? buyLinks : stores || [];
 
+  // Lien Instant Gaming sécurisé (peut être null)
+  const instantGamingUrl = buildInstantGamingSearchUrl(gameName);
+
   const instantGamingLink: BuyLink = {
     name: 'Instant Gaming',
     store: 'instant_gaming',
-    url: buildInstantGamingSearchUrl(gameName)
+    url: instantGamingUrl
   };
 
   const existingLinks = Array.isArray(linksToUse) ? linksToUse : [];
+
+  // Filtrer uniquement les URLs valides
   const filteredStores = existingLinks.filter((s: any) => s.url && s.url.length > 0);
 
-  const allLinks = [instantGamingLink, ...filteredStores];
+  // Ajouter Instant Gaming uniquement si l'URL est valide
+  const allLinks = [
+    ...(instantGamingLink.url ? [instantGamingLink] : []),
+    ...filteredStores
+  ];
 
   const storeOrder = ['instant', 'steam', 'playstation', 'xbox', 'epic', 'nintendo', 'gog'];
 
@@ -57,11 +66,14 @@ const BuyLinks: React.FC<BuyLinksProps> = ({ buyLinks, stores, gameId, gameName 
     return 'other';
   };
 
-  const isAffiliateLink = (url: string): boolean => {
+  const isAffiliateLink = (url: string | null): boolean => {
+    if (!url) return false;
     return url.includes('instant-gaming.com') && url.includes('igr=');
   };
 
   const handleClick = (link: BuyLink) => {
+    if (!link.url) return;
+
     const storeType = getStoreType(link);
     const isAffiliate = isAffiliateLink(link.url);
 
@@ -83,20 +95,24 @@ const BuyLinks: React.FC<BuyLinksProps> = ({ buyLinks, stores, gameId, gameName 
 
   return (
     <span className="text-white font-semibold">
-      {sortedStores.map((link, index) => (
-        <React.Fragment key={index}>
-          {index > 0 && ' • '}
-          <a
-            href={link.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-400 hover:underline"
-            onClick={() => handleClick(link)}
-          >
-            {link.name}
-          </a>
-        </React.Fragment>
-      ))}
+      {sortedStores.map((link, index) => {
+        if (!link.url) return null;
+
+        return (
+          <React.Fragment key={index}>
+            {index > 0 && ' • '}
+            <a
+              href={link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:underline"
+              onClick={() => handleClick(link)}
+            >
+              {link.name}
+            </a>
+          </React.Fragment>
+        );
+      })}
     </span>
   );
 };
