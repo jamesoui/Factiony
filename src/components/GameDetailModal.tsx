@@ -1009,7 +1009,8 @@ setTempReview(reviewVal);
   if (!isOpen) return null;
 
   return (
-  <div className="fixed inset-0 z-50 overflow-y-auto">
+  <>
+    <div className="fixed inset-0 z-50 overflow-y-auto">
 
     <Helmet>
       <title>{pageTitle}</title>
@@ -1513,48 +1514,51 @@ setTempReview(reviewVal);
                 <GameForum gameId={String(game.id)} gameName={game.name} />
               </div>
             )}
-          </div>
+                    </div>
         </div>
       </div>
-
-      {/* Modal de critique */}
-      {showReviewModal && (
-        <ReviewModal
-          isOpen={showReviewModal}
-          onClose={() => setShowReviewModal(false)}
-          game={game}
-          onSave={async (review) => {
-            try {
-              const g = fullGame ?? game;
-              const gameSlug = g?.slug || game.title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-              const reviewText = review.isQuickReview ? null : review.content;
-              const gameId = game.id.toString();
-
-              await rateGame(gameId, gameSlug, review.rating, reviewText || undefined, review.spoilers);
-
-              alert('Votre note et critique ont été enregistrées avec succès !');
-              setShowReviewModal(false);
-
-              await loadUserRating();
-
-              if (onRate) {
-                onRate(review.rating);
-              }
-
-              if (onReview && reviewText) {
-                onReview(reviewText, review.rating);
-              }
-
-              window.dispatchEvent(new CustomEvent('reviewSaved'));
-            } catch (error) {
-              console.error('Erreur lors de la sauvegarde:', error);
-              alert('Erreur lors de l\'enregistrement de votre note. Veuillez réessayer.');
-              throw error;
-            }
-          }}
-        />
-      )}
     </div>
+
+    {/* Modal de critique (doit être DANS le fixed container) */}
+    {showReviewModal && (
+      <ReviewModal
+        isOpen={showReviewModal}
+        onClose={() => setShowReviewModal(false)}
+        game={game}
+        onSave={async (review) => {
+          try {
+            const g2 = fullGame ?? game;
+            const gameSlug =
+              g2?.slug ||
+              (game.title || game.name || '')
+                .toLowerCase()
+                .replace(/\s+/g, '-')
+                .replace(/[^a-z0-9-]/g, '');
+
+            const reviewText = review.isQuickReview ? null : review.content;
+            const gameId = game.id.toString();
+
+            await rateGame(gameId, gameSlug, review.rating, reviewText || undefined, review.spoilers);
+
+            alert('Votre note et critique ont été enregistrées avec succès !');
+            setShowReviewModal(false);
+
+            await loadUserRating();
+
+            if (onRate) onRate(review.rating);
+            if (onReview && reviewText) onReview(reviewText, review.rating);
+
+            window.dispatchEvent(new CustomEvent('reviewSaved'));
+          } catch (error) {
+            console.error('Erreur lors de la sauvegarde:', error);
+            alert("Erreur lors de l'enregistrement de votre note. Veuillez réessayer.");
+            throw error;
+          }
+        }}
+      />
+    )}
+  </div>
+</>
   );
 };
 
