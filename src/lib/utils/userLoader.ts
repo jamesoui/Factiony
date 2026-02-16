@@ -28,13 +28,20 @@ const mockUserDefaults = {
   }
 };
 
-// Nettoie les emails pollués du type "TON_E_email@domain.com"
+// ⭐ Nettoie TOUS les emails pollués (TON_E_, E, Email:, etc.)
 const cleanEmail = (value?: string | null) => {
   if (!value) return '';
+
   const s = value.trim();
 
-  // Si le champ contient un email et un préfixe genre "TON_E_", on garde la partie après le dernier "_"
-  if (s.includes('@') && s.includes('_')) return s.split('_').pop()!;
+  // Extrait l'email valide présent dans la chaîne
+  // Exemple :
+  // "TON_E_james@mail.com" → "james@mail.com"
+  // "Ejames@mail.com" → "james@mail.com"
+  // "Email: james@mail.com" → "james@mail.com"
+  const match = s.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+
+  if (match) return match[0];
 
   return s;
 };
