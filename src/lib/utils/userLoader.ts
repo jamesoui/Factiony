@@ -1,8 +1,10 @@
 import { User } from '../../types';
 
 const mockUserDefaults = {
-  avatar: 'https://images.pexels.com/photos/442576/pexels-photo-442576.jpeg?auto=compress&cs=tinysrgb&w=400',
-  banner: 'https://images.pexels.com/photos/1174746/pexels-photo-1174746.jpeg?auto=compress&cs=tinysrgb&w=1200',
+  avatar:
+    'https://images.pexels.com/photos/442576/pexels-photo-442576.jpeg?auto=compress&cs=tinysrgb&w=400',
+  banner:
+    'https://images.pexels.com/photos/1174746/pexels-photo-1174746.jpeg?auto=compress&cs=tinysrgb&w=1200',
   preferences: {
     language: 'fr',
     theme: 'dark',
@@ -26,6 +28,17 @@ const mockUserDefaults = {
   }
 };
 
+// Nettoie les emails pollués du type "TON_E_email@domain.com"
+const cleanEmail = (value?: string | null) => {
+  if (!value) return '';
+  const s = value.trim();
+
+  // Si le champ contient un email et un préfixe genre "TON_E_", on garde la partie après le dernier "_"
+  if (s.includes('@') && s.includes('_')) return s.split('_').pop()!;
+
+  return s;
+};
+
 export async function loadUserData(userId: string): Promise<User | null> {
   try {
     const { db } = await import('../database');
@@ -38,10 +51,12 @@ export async function loadUserData(userId: string): Promise<User | null> {
       db.sql.getUserFollowing(userId)
     ]);
 
+    const emailClean = cleanEmail(profile.email);
+
     const user: User = {
       id: profile.id,
-      email: profile.email,
-      username: profile.username || profile.email.split('@')[0],
+      email: emailClean,
+      username: profile.username || (emailClean ? emailClean.split('@')[0] : ''),
       avatar: profile.avatar_url || mockUserDefaults.avatar,
       banner: profile.banner_url || mockUserDefaults.banner,
       bio: profile.bio || '',
@@ -50,8 +65,8 @@ export async function loadUserData(userId: string): Promise<User | null> {
       joinDate: profile.created_at,
       isPremium: profile.is_premium || false,
       isVerified: profile.is_verified || false,
-      followers: followersData.map(f => f.id),
-      following: followingData.map(f => f.id),
+      followers: followersData.map((f) => f.id),
+      following: followingData.map((f) => f.id),
       stats: {
         gamesPlayed: 0,
         gamesCompleted: 0,

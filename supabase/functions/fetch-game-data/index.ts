@@ -34,38 +34,53 @@ function needsMediaEnrichment(payload: any): boolean {
 
 async function fetchYouTubeTrailers(gameName: string, youtubeApiKey: string): Promise<any[]> {
   try {
-    const youtubeQuery = encodeURIComponent(`${gameName} official trailer`);
-    const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${youtubeQuery}&type=video&videoEmbeddable=true&safeSearch=none&order=relevance&maxResults=10&key=${youtubeApiKey}`;
+    // 1) Query plus safe (évite caractères chelous + longueur)
+    const qRaw = `${gameName} official trailer`.slice(0, 80);
+    const youtubeQuery = encodeURIComponent(qRaw);
 
-    console.log(`YT_SEARCH_DEBUG: Searching YouTube for "${gameName}"`);
+    // 2) URL simple et standard (moins de chances de 400)
+    const searchUrl =
+      `https://www.googleapis.com/youtube/v3/search` +
+      `?part=snippet` +
+      `&q=${youtubeQuery}` +
+      `&type=video` +
+      `&maxResults=10` +
+      `&order=relevance` +
+      `&safeSearch=none` +
+      `&videoEmbeddable=true` +
+      `&key=${youtubeApiKey}`;
+
+    console.log(`YT_SEARCH_DEBUG: Searching YouTube for "${qRaw}"`);
+    // (optionnel) pour debug : console.log("YT_SEARCH_URL:", searchUrl);
 
     const searchRes = await fetch(searchUrl);
 
     if (!searchRes.ok) {
-      console.log(`YT_SEARCH_DEBUG: { status: ${searchRes.status}, count: 0 }`);
+      const errTxt = await searchRes.text().catch(() => '');
+      console.log(`YT_HTTP_ERROR: status=${searchRes.status} body=${errTxt.slice(0, 500)}`);
       return [];
     }
 
     const searchData = await searchRes.json();
     const searchVideos = searchData.items || [];
-
     console.log(`YT_SEARCH_DEBUG: { status: ${searchRes.status}, count: ${searchVideos.length} }`);
 
-    if (searchVideos.length === 0) {
-      return [];
-    }
+    if (searchVideos.length === 0) return [];
 
     const videoIds = searchVideos.map((item: any) => item.id?.videoId).filter(Boolean);
-    if (videoIds.length === 0) {
-      return [];
-    }
+    if (videoIds.length === 0) return [];
 
-    const videosUrl = `https://www.googleapis.com/youtube/v3/videos?part=status,snippet&id=${videoIds.join(',')}&key=${youtubeApiKey}`;
+    const videosUrl =
+      `https://www.googleapis.com/youtube/v3/videos` +
+      `?part=status,snippet` +
+      `&id=${encodeURIComponent(videoIds.join(','))}` +
+      `&key=${youtubeApiKey}`;
 
     const videosRes = await fetch(videosUrl);
 
     if (!videosRes.ok) {
-      console.log(`YT_VIDEOS_DEBUG: { status: ${videosRes.status}, embeddableCount: 0 }`);
+      const errTxt = await videosRes.text().catch(() => '');
+      console.log(`YT_VIDEOS_HTTP_ERROR: status=${videosRes.status} body=${errTxt.slice(0, 500)}`);
       return [];
     }
 
@@ -74,23 +89,21 @@ async function fetchYouTubeTrailers(gameName: string, youtubeApiKey: string): Pr
 
     const embeddableVideos = allVideos.filter((video: any) => video.status?.embeddable === true);
 
-    const firstEmbeddableTitle = embeddableVideos.length > 0 ? embeddableVideos[0].snippet.title : null;
+    const firstEmbeddableTitle = embeddableVideos.length > 0 ? embeddableVideos[0].snippet?.title : null;
     console.log(`YT_VIDEOS_DEBUG: { status: ${videosRes.status}, embeddableCount: ${embeddableVideos.length}, firstEmbeddableTitle: "${firstEmbeddableTitle}" }`);
 
     const trailers: any[] = [];
-
     for (const video of embeddableVideos) {
       if (trailers.length >= 5) break;
-
       const videoId = video.id;
       if (!videoId) continue;
 
       trailers.push({
-        title: video.snippet.title,
+        title: video.snippet?.title,
         provider: 'youtube',
-        videoId: videoId,
+        videoId,
         url: `https://www.youtube.com/watch?v=${videoId}`,
-        thumbnail: video.snippet.thumbnails?.high?.url || video.snippet.thumbnails?.default?.url || null,
+        thumbnail: video.snippet?.thumbnails?.high?.url || video.snippet?.thumbnails?.default?.url || null,
         score: 0
       });
     }
@@ -393,32 +406,43 @@ async function enrichCacheWithMedia(
     const gameplay: any[] = [];
 
     for (const video of playableMovies) {
-      const name = video.title.toLowerCase();
-      if (name.includes('trailer') || name.includes('teaser') ||
-          name.includes('reveal') || name.includes('launch') ||
-          name.includes('announcement')) {
-        if (trailers.length < 5) {
-          trailers.push(video);
-        }
-      } else if (name.includes('gameplay') || name.includes('playthrough')) {
-        if (gameplay.length < 2) {
-          gameplay.push(video);
-        }
-      }
-    }
+  const name = (video.title || '').toLowerCase();
 
-    if (playableMovies.length === 0) {
-      const YOUTUBE_API_KEY = Deno.env.get('YOUTUBE_API_KEY');
-      console.log('YT_KEY_PRESENT:', Boolean(YOUTUBE_API_KEY));
-
-      if (YOUTUBE_API_KEY && payload?.name) {
-        console.log(`YT_DEBUG: Attempting YouTube fallback for "${payload.name}"`);
-        const ytTrailers = await fetchYouTubeTrailers(payload.name, YOUTUBE_API_KEY);
-        trailers.push(...ytTrailers);
-      } else {
-        console.log('YT_DEBUG: Skipped (no API key or game name)');
-      }
+  if (
+    name.includes('trailer') ||
+    name.includes('teaser') ||
+    name.includes('reveal') ||
+    name.includes('launch') ||
+    name.includes('announcement')
+  ) {
+    if (trailers.length < 5) {
+      trailers.push(video);
     }
+  } else if (name.includes('gameplay') || name.includes('playthrough')) {
+    if (gameplay.length < 2) {
+      gameplay.push(video);
+    }
+  }
+}
+
+// ✅ Fallback #1: RAWG a des vidéos mais on n'a rien classé → on en expose quand même
+if (trailers.length === 0 && gameplay.length === 0 && playableMovies.length > 0) {
+  trailers.push(...playableMovies.slice(0, 3));
+}
+
+// ✅ Fallback #2: YouTube seulement si on n'a toujours rien à afficher
+if (trailers.length === 0 && gameplay.length === 0) {
+  const YOUTUBE_API_KEY = Deno.env.get('YOUTUBE_API_KEY');
+  console.log('YT_KEY_PRESENT:', Boolean(YOUTUBE_API_KEY));
+
+  if (YOUTUBE_API_KEY && payload?.name) {
+    console.log(`YT_DEBUG: Attempting YouTube fallback for "${payload.name}"`);
+    const ytTrailers = await fetchYouTubeTrailers(payload.name, YOUTUBE_API_KEY);
+    trailers.push(...ytTrailers);
+  } else {
+    console.log('YT_DEBUG: Skipped (no API key or game name)');
+  }
+}
 
     const enrichedPayload = {
       ...payload,
@@ -428,6 +452,13 @@ async function enrichCacheWithMedia(
         gameplay: gameplay.length > 0 ? gameplay : (payload.videos?.gameplay || [])
       }
     };
+(enrichedPayload as any)._debug_media = {
+  playableMoviesCount: playableMovies.length,
+  trailersCount: trailers.length,
+  gameplayCount: gameplay.length,
+  ytKeyPresent: Boolean(Deno.env.get('YOUTUBE_API_KEY')),
+  nameForYoutube: payload?.name || null
+};
 
     console.log(`MEDIA_FINAL_DEBUG: { screenshots: ${enrichedPayload.screenshots.length}, trailers: ${enrichedPayload.videos.trailers.length}, gameplay: ${enrichedPayload.videos.gameplay.length} }`);
 
@@ -937,33 +968,45 @@ Deno.serve(async (req: Request) => {
     const gameplay: any[] = [];
 
     for (const video of playableMovies) {
-      const name = video.title.toLowerCase();
-      if (name.includes('trailer') || name.includes('teaser') ||
-          name.includes('reveal') || name.includes('launch') ||
-          name.includes('announcement')) {
-        if (trailers.length < 5) {
-          trailers.push(video);
-        }
-      } else if (name.includes('gameplay') || name.includes('playthrough')) {
-        if (gameplay.length < 2) {
-          gameplay.push(video);
-        }
-      }
-    }
+  const name = (video.title || '').toLowerCase();
 
-    const gameName = igdbData?.name || rawgData?.name;
-    if (playableMovies.length === 0 && gameName) {
-      const YOUTUBE_API_KEY = Deno.env.get('YOUTUBE_API_KEY');
-      console.log('YT_KEY_PRESENT:', Boolean(YOUTUBE_API_KEY));
-
-      if (YOUTUBE_API_KEY) {
-        console.log(`YT_DEBUG: Attempting YouTube fallback for "${gameName}"`);
-        const ytTrailers = await fetchYouTubeTrailers(gameName, YOUTUBE_API_KEY);
-        trailers.push(...ytTrailers);
-      } else {
-        console.log('YT_DEBUG: Skipped (no API key)');
-      }
+  if (
+    name.includes('trailer') ||
+    name.includes('teaser') ||
+    name.includes('reveal') ||
+    name.includes('launch') ||
+    name.includes('announcement')
+  ) {
+    if (trailers.length < 5) {
+      trailers.push(video);
     }
+  } else if (name.includes('gameplay') || name.includes('playthrough')) {
+    if (gameplay.length < 2) {
+      gameplay.push(video);
+    }
+  }
+}
+
+// ✅ Fallback #1: RAWG a des vidéos mais on n'a rien classé → on en expose quand même
+if (trailers.length === 0 && gameplay.length === 0 && playableMovies.length > 0) {
+  trailers.push(...playableMovies.slice(0, 3));
+}
+
+const gameName = igdbData?.name || rawgData?.name;
+
+// ✅ Fallback #2: YouTube seulement si on n'a toujours rien à afficher
+if (trailers.length === 0 && gameplay.length === 0 && gameName) {
+  const YOUTUBE_API_KEY = Deno.env.get('YOUTUBE_API_KEY');
+  console.log('YT_KEY_PRESENT:', Boolean(YOUTUBE_API_KEY));
+
+  if (YOUTUBE_API_KEY) {
+    console.log(`YT_DEBUG: Attempting YouTube fallback for "${gameName}"`);
+    const ytTrailers = await fetchYouTubeTrailers(gameName, YOUTUBE_API_KEY);
+    trailers.push(...ytTrailers);
+  } else {
+    console.log('YT_DEBUG: Skipped (no API key)');
+  }
+}
 
     const extractPCRequirements = async (): Promise<any> => {
       if (!rawgData?.platforms || !Array.isArray(rawgData.platforms)) {
@@ -1151,7 +1194,7 @@ Deno.serve(async (req: Request) => {
         headers: {
           ...corsHeaders,
           "Content-Type": "application/json",
-          "Cache-Control": "public, max-age=604800"
+          "Cache-Control": "no-store"
         },
       }
     );
