@@ -76,3 +76,9 @@ path = "/og/review/*"
   for = "/logo-factiony.png"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+[[edge_functions]]
+function = "ai-reco"
+path = "/api/ai-reco"
+[[edge_functions]]
+function = "ai-reco"
+path = "/api/ai-reco/*"
