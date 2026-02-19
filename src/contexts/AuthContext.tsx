@@ -19,6 +19,12 @@ interface AuthProviderProps {
   children: ReactNode | ((props: { isAuthenticated: boolean }) => ReactNode)
 }
 
+// Helper: force l’email à venir de Supabase Auth (fiable) plutôt que du profile DB (polluable)
+const applyAuthEmail = (userData: User, authEmail?: string | null): User => {
+  const email = (authEmail || '').trim();
+  return email ? { ...userData, email } : userData;
+};
+
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -41,9 +47,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       console.log('✅ Connexion réussie, chargement du profil...');
       const userData = await loadUserData(signInResult.user.id);
+
       if (userData) {
         console.log('✅ Profil chargé:', userData.username);
-        setUser(userData);
+        // ✅ email = celui tapé (source de vérité)
+        setUser(applyAuthEmail(userData, email));
         setShowOnboarding(false);
       } else {
         throw new Error('Impossible de charger le profil utilisateur');
@@ -75,7 +83,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const userData = await loadUserData(signUpResult.user.id);
       if (userData) {
         console.log('✅ Profil créé:', userData.username);
-        setUser(userData);
+        // ✅ email = celui tapé (source de vérité)
+        setUser(applyAuthEmail(userData, email));
         setShowOnboarding(true);
       } else {
         console.error('❌ Profil non trouvé après inscription');
@@ -113,12 +122,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const { db } = await import('../lib/database');
         const { supabase } = await import('../lib/supabaseClient');
 
+        // ✅ Récupère l’email auth directement (fiable)
+        const { data: sessionData } = await supabase.auth.getSession();
+        const sessionEmail = sessionData?.session?.user?.email || null;
+
         const currentUser = await db.sql.getCurrentUser();
 
         if (currentUser) {
           const userData = await loadUserData(currentUser.id);
           if (userData) {
-            setUser(userData);
+            setUser(applyAuthEmail(userData, sessionEmail));
           }
         }
 
@@ -129,7 +142,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             if (event === 'SIGNED_IN' && session?.user) {
               const userData = await loadUserData(session.user.id);
               if (userData) {
-                setUser(userData);
+                // ✅ email = Supabase Auth
+                setUser(applyAuthEmail(userData, session.user.email));
               }
             } else if (event === 'SIGNED_OUT') {
               setUser(null);
