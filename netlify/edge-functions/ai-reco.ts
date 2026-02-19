@@ -21,6 +21,20 @@ export default async (request: Request) => {
   const MISTRAL_MODEL = Deno.env.get("MISTRAL_MODEL") ?? "mistral-large-latest";
   const SEARCH_FN_URL = Deno.env.get("SUPABASE_SEARCH_FN_URL");
   const BASE_URL = Deno.env.get("FACTIONY_BASE_URL") ?? "https://factiony.com";
+const key = Deno.env.get("MISTRAL_API_KEY") ?? "";
+const enc = new TextEncoder();
+const digest = await crypto.subtle.digest("SHA-256", enc.encode(key));
+const hashHex = Array.from(new Uint8Array(digest))
+  .map((b) => b.toString(16).padStart(2, "0"))
+  .join("")
+  .slice(0, 12);
+
+console.log("MISTRAL ENV", {
+  hasKey: !!key,
+  keyLen: key.length,
+  keyHash12: hashHex,
+  model: MISTRAL_MODEL,
+});
 
   if (!MISTRAL_API_KEY) {
     return new Response(JSON.stringify({ error: "Missing MISTRAL_API_KEY" }), {
