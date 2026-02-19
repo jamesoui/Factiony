@@ -17,7 +17,7 @@ export default async (request: Request) => {
     });
   }
 
-  const MISTRAL_API_KEY = Deno.env.get("MISTRAL_API_KEY");
+  const MISTRAL_API_KEY = (Deno.env.get("MISTRAL_API_KEY") ?? "").trim();
   const MISTRAL_MODEL = Deno.env.get("MISTRAL_MODEL") ?? "mistral-large-latest";
   const SEARCH_FN_URL = Deno.env.get("SUPABASE_SEARCH_FN_URL");
   const BASE_URL = Deno.env.get("FACTIONY_BASE_URL") ?? "https://factiony.com";
