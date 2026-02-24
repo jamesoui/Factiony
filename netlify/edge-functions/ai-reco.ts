@@ -1,4 +1,40 @@
 // netlify/edge-functions/ai-reco.ts
+
+type Candidate = {
+  id: string | number;
+  name: string;
+  slug: string;
+  released?: string | null;
+  genres?: string[];
+  platforms?: string[];
+  desc?: string;
+};
+
+function jsonResponse(body: any, status = 200, corsHeaders: Record<string, string> = {}) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json", ...corsHeaders },
+  });
+}
+
+function stripJsonCodeFences(raw: string): string {
+  const s = (raw ?? "").trim();
+  // remove ```json ... ``` or ``` ... ```
+  if (s.startsWith("```")) {
+    return s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  }
+  return s;
+}
+
+function safeParseJson(raw: string) {
+  const cleaned = stripJsonCodeFences(raw);
+  try {
+    return { ok: true as const, value: JSON.parse(cleaned), cleaned };
+  } catch (e) {
+    return { ok: false as const, error: String(e), cleaned };
+  }
+}
+
 export default async (request: Request) => {
   // CORS basique (si tu appelles depuis le front)
   const corsHeaders = {
@@ -12,100 +48,146 @@ export default async (request: Request) => {
   }
 
   if (request.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: { "content-type": "application/json", ...corsHeaders },
-    });
+    return jsonResponse({ error: "Method not allowed" }, 405, corsHeaders);
   }
 
-  // ---- ENV (Netlify Edge Runtime: Deno.env.get) ----
+  // ---- ENV ----
   const MISTRAL_API_KEY = Deno.env.get("MISTRAL_API_KEY");
   const MISTRAL_MODEL = Deno.env.get("MISTRAL_MODEL") ?? "mistral-large-latest";
+
+  // existing keyword search supabase function
   const SEARCH_FN_URL = Deno.env.get("SUPABASE_SEARCH_FN_URL");
+
+  // NEW: vector search supabase function (optional)
+  const VECTOR_SEARCH_FN_URL = Deno.env.get("SUPABASE_VECTOR_SEARCH_FN_URL");
+
   const BASE_URL = Deno.env.get("FACTIONY_BASE_URL") ?? "https://factiony.com";
 
   if (!MISTRAL_API_KEY) {
-    return new Response(JSON.stringify({ error: "Missing MISTRAL_API_KEY" }), {
-      status: 500,
-      headers: { "content-type": "application/json", ...corsHeaders },
-    });
+    return jsonResponse({ error: "Missing MISTRAL_API_KEY" }, 500, corsHeaders);
   }
-  if (!SEARCH_FN_URL) {
-    return new Response(JSON.stringify({ error: "Missing SUPABASE_SEARCH_FN_URL" }), {
-      status: 500,
-      headers: { "content-type": "application/json", ...corsHeaders },
-    });
+  if (!SEARCH_FN_URL && !VECTOR_SEARCH_FN_URL) {
+    return jsonResponse(
+      { error: "Missing SUPABASE_SEARCH_FN_URL and SUPABASE_VECTOR_SEARCH_FN_URL (need at least one)" },
+      500,
+      corsHeaders
+    );
   }
 
-  // ---- Parse body ----
+  // ---- BODY ----
   let body: any;
   try {
     body = await request.json();
   } catch {
-    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
-      status: 400,
-      headers: { "content-type": "application/json", ...corsHeaders },
-    });
+    return jsonResponse({ error: "Invalid JSON body" }, 400, corsHeaders);
   }
 
   const query = (body?.query ?? "").toString().trim();
-  const pageSize = Number(body?.page_size ?? 30);
-
   if (!query) {
-    return new Response(JSON.stringify({ error: "Missing query" }), {
-      status: 400,
-      headers: { "content-type": "application/json", ...corsHeaders },
-    });
+    return jsonResponse({ error: "Missing query" }, 400, corsHeaders);
   }
 
-  // 1) Fetch candidates from your Supabase function
-  const searchUrl = new URL(SEARCH_FN_URL);
-  searchUrl.searchParams.set("query", query);
-  searchUrl.searchParams.set("page_size", String(Number.isFinite(pageSize) ? pageSize : 30));
+  const pageSizeRaw = Number(body?.page_size ?? 30);
+  const page_size = Number.isFinite(pageSizeRaw) ? Math.min(Math.max(pageSizeRaw, 3), 50) : 30;
 
-  const candidatesRes = await fetch(searchUrl.toString(), {
-    method: "GET",
-    headers: { "content-type": "application/json" },
-  });
+  // ---- 1) Fetch candidates (vector first, fallback keyword) ----
+  let candidatesRes: Response | null = null;
+  let candidatesMode: "vector" | "keyword" | "none" = "none";
+  let candidatesUrlUsed: string | null = null;
 
-  if (!candidatesRes.ok) {
-    const text = await candidatesRes.text();
-    return new Response(
-      JSON.stringify({
-        error: "search-games failed",
-        status: candidatesRes.status,
-        details: text.slice(0, 500),
-      }),
-      { status: 500, headers: { "content-type": "application/json", ...corsHeaders } }
+  // try vector
+  if (VECTOR_SEARCH_FN_URL) {
+    const u = new URL(VECTOR_SEARCH_FN_URL);
+    u.searchParams.set("query", query);
+    u.searchParams.set("page_size", String(page_size));
+    candidatesUrlUsed = u.toString();
+
+    candidatesRes = await fetch(candidatesUrlUsed, {
+      method: "GET",
+      headers: { "content-type": "application/json" },
+    });
+
+    if (candidatesRes.ok) {
+      candidatesMode = "vector";
+    } else {
+      candidatesRes = null;
+    }
+  }
+
+  // fallback keyword
+  if (!candidatesRes && SEARCH_FN_URL) {
+    const u = new URL(SEARCH_FN_URL);
+    u.searchParams.set("query", query);
+    u.searchParams.set("page_size", String(page_size));
+    candidatesUrlUsed = u.toString();
+
+    candidatesRes = await fetch(candidatesUrlUsed, {
+      method: "GET",
+      headers: { "content-type": "application/json" },
+    });
+
+    if (candidatesRes.ok) {
+      candidatesMode = "keyword";
+    }
+  }
+
+  if (!candidatesRes || !candidatesRes.ok) {
+    const status = candidatesRes?.status ?? 0;
+    const details = candidatesRes ? (await candidatesRes.text()).slice(0, 800) : "no response";
+    return jsonResponse(
+      { error: "candidates fetch failed", status, mode: candidatesMode, url: candidatesUrlUsed, details },
+      500,
+      corsHeaders
     );
   }
 
   const candidatesJson = await candidatesRes.json();
 
-  // Normalise a compact list for the LLM
-  const rawList = (candidatesJson?.results ?? candidatesJson ?? []) as any[];
-  const items = rawList.slice(0, 50).map((g: any) => ({
+  // Support both shapes:
+  // - { results: [...] }
+  // - [...] directly
+  const rawList = Array.isArray(candidatesJson?.results)
+    ? candidatesJson.results
+    : Array.isArray(candidatesJson)
+      ? candidatesJson
+      : [];
+
+  // normalize to compact candidates list for LLM
+  const items: Candidate[] = rawList.slice(0, page_size).map((g: any) => ({
     id: g.id,
-    name: g.name ?? g.title,
-    slug: g.slug,
-    released: g.released,
-    genres: (g.genres ?? []).map((x: any) => x.name ?? x).slice(0, 5),
-    platforms: (g.platforms ?? []).map((x: any) => x.name ?? x).slice(0, 6),
+    name: (g.name ?? g.title ?? "").toString(),
+    slug: (g.slug ?? "").toString(),
+    released: g.released ?? null,
+    genres: (g.genres ?? []).map((x: any) => (x?.name ?? x).toString()).slice(0, 5),
+    platforms: (g.platforms ?? []).map((x: any) => (x?.name ?? x).toString()).slice(0, 6),
     desc: (g.description_raw ?? g.description ?? "").toString().slice(0, 240),
-  }));
+  })).filter((x: Candidate) => x.slug && x.name);
 
-  // Pour validation ensuite (slug doit venir des candidats)
-  const allowedSlugs = new Set(items.map((x) => x.slug).filter(Boolean));
+  if (items.length === 0) {
+    return jsonResponse(
+      {
+        query,
+        recommendations: [],
+        follow_up_question: "Tu cherches plutôt un jeu sur quelle plateforme (PC, PS5, Switch, Xbox, mobile) ?",
+        model: MISTRAL_MODEL,
+        candidates_count: 0,
+        candidates_mode: candidatesMode,
+      },
+      200,
+      corsHeaders
+    );
+  }
 
-  // 2) Ask Mistral to pick the best 3 *from the candidate list*
+  // ---- 2) LLM picks best 3 from candidates list ----
   const system = [
     "Tu es un assistant de recommandation de jeux vidéo pour Factiony.",
     "Tu dois choisir des jeux UNIQUEMENT dans la liste de candidats fournie.",
-    "Tu réponds en JSON STRICT, sans texte autour, sans markdown, sans ```.",
+    "Réponds en JSON STRICT, sans texte autour.",
     'Format EXACT: {"recommendations":[{"slug":"...","title":"...","why":"..."}],"follow_up_question":"..."}',
     "recommendations: exactement 3 items.",
     "why: 1-2 phrases max.",
-    "slug: doit exister dans les candidats.",
+    "slug doit exister dans les candidats.",
+    "Si la demande parle de jeu à 2 (couple, copine, coop), privilégie des jeux jouables à deux (coop local/online) si possible.",
   ].join("\n");
 
   const user = [
@@ -118,14 +200,12 @@ export default async (request: Request) => {
   const mistralRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${MISTRAL_API_KEY}`,
+      "Authorization": `Bearer ${MISTRAL_API_KEY}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
       model: MISTRAL_MODEL,
       temperature: 0.6,
-      // Le plus important pour éviter les ```json ... ```
-      response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
@@ -135,74 +215,45 @@ export default async (request: Request) => {
 
   if (!mistralRes.ok) {
     const text = await mistralRes.text();
-    return new Response(
-      JSON.stringify({
-        error: "mistral failed",
-        status: mistralRes.status,
-        details: text.slice(0, 500),
-      }),
-      { status: 500, headers: { "content-type": "application/json", ...corsHeaders } }
+    return jsonResponse(
+      { error: "mistral failed", status: mistralRes.status, details: text.slice(0, 800) },
+      500,
+      corsHeaders
     );
   }
 
   const mistralJson = await mistralRes.json();
   const raw = mistralJson?.choices?.[0]?.message?.content ?? "";
 
-  // 3) Parse JSON safely (avec fallback "strip fences" au cas où)
-  const cleaned = raw
-    .toString()
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/i, "");
-
-  let parsed: any = null;
-  try {
-    parsed = JSON.parse(cleaned);
-  } catch {
-    return new Response(JSON.stringify({ error: "LLM did not return valid JSON", raw }), {
-      status: 500,
-      headers: { "content-type": "application/json", ...corsHeaders },
-    });
-  }
-
-  // 4) Normalise + validate output
-  const recsRaw = Array.isArray(parsed?.recommendations) ? parsed.recommendations : [];
-  const recs = recsRaw.slice(0, 3).map((r: any) => ({
-    slug: (r?.slug ?? "").toString(),
-    title: (r?.title ?? "").toString(),
-    why: (r?.why ?? "").toString(),
-  }));
-
-  // Validation: 3 recos + slugs exist
-  if (recs.length !== 3 || recs.some((r) => !r.slug || !allowedSlugs.has(r.slug))) {
-    return new Response(
-      JSON.stringify({
-        error: "LLM returned invalid recommendations (slug not in candidates or wrong count)",
-        raw: parsed,
-        allowed_slugs_sample: Array.from(allowedSlugs).slice(0, 10),
-      }),
-      { status: 500, headers: { "content-type": "application/json", ...corsHeaders } }
+  const parsed = safeParseJson(raw);
+  if (!parsed.ok) {
+    return jsonResponse(
+      { error: "LLM did not return valid JSON", raw, cleaned: parsed.cleaned, parse_error: parsed.error },
+      500,
+      corsHeaders
     );
   }
 
-  // 5) Add Factiony links
-  const recsWithLinks = recs.map((r) => ({
-    ...r,
-    url: `${BASE_URL}/game/${r.slug}`,
+  // ---- 3) Post-process & add links ----
+  const recs = (parsed.value?.recommendations ?? []).slice(0, 3).map((r: any) => ({
+    slug: r?.slug ?? null,
+    title: r?.title ?? null,
+    why: r?.why ?? null,
+    url: r?.slug ? `${BASE_URL}/game/${r.slug}` : null,
   }));
 
-  return new Response(
-    JSON.stringify({
+  return jsonResponse(
+    {
       query,
-      recommendations: recsWithLinks,
-      follow_up_question: parsed?.follow_up_question ?? null,
+      recommendations: recs,
+      follow_up_question: parsed.value?.follow_up_question ?? null,
       model: MISTRAL_MODEL,
       candidates_count: items.length,
-    }),
-    { status: 200, headers: { "content-type": "application/json", ...corsHeaders } }
+      candidates_mode: candidatesMode,
+    },
+    200,
+    corsHeaders
   );
 };
 
-// Netlify Edge Functions mapping is done in netlify.toml,
-// but keeping config doesn't hurt if you already used it.
 export const config = { path: "/api/ai-reco" };
