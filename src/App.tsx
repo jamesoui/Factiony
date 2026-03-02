@@ -36,6 +36,7 @@ import ShareReview from './pages/ShareReview';
 import TermsPage from './pages/TermsPage';
 import TopCategoryPage from './pages/TopCategoryPage';
 import GamesLikePage from './pages/GamesLikePage';
+import AssistantPage from './pages/AssistantPage';
 import { GameModalRoute } from './components/GameModalRoute';
 import OnboardingRatingsRedirect from './components/OnboardingRatingsRedirect';
 import PrivacyPage from './pages/PrivacyPage';
@@ -81,6 +82,7 @@ const AppContent: React.FC = () => {
         <Route path="/top/:tagSlug" element={<MainLayout><TopCategoryPage /></MainLayout>} />
         <Route path="/games-like/:gameSlug" element={<MainLayout><GamesLikePage /></MainLayout>} />
         <Route path="/search" element={<MainLayout><SearchPage /></MainLayout>} />
+        <Route path="/assistant" element={<MainLayout><AssistantPage /></MainLayout>} />
 
         <Route path="/onboarding/ratings" element={
           <ProtectedRoute>
