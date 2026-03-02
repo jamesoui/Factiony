@@ -116,7 +116,6 @@ export default function AssistantPage() {
       <div className="bg-gray-800 rounded-xl border border-gray-700 p-6 h-96 overflow-y-auto mb-6">
         {messages.map((m, i) => (
           <div key={i}>
-            {/* Message utilisateur */}
             {m.role === 'user' && (
               <div className="mb-4 flex justify-end">
                 <div className="max-w-md px-4 py-3 rounded-lg whitespace-pre-wrap text-sm bg-orange-600 text-white rounded-br-none">
@@ -125,7 +124,6 @@ export default function AssistantPage() {
               </div>
             )}
 
-            {/* Message assistant texte */}
             {m.role === 'assistant' && (
               <div className="mb-4 flex justify-start">
                 <div className="max-w-md px-4 py-3 rounded-lg whitespace-pre-wrap text-sm bg-gray-700 text-gray-100 rounded-bl-none">
@@ -134,7 +132,6 @@ export default function AssistantPage() {
               </div>
             )}
 
-            {/* Recommendations card */}
             {m.role === 'recommendations' && m.recommendations && (
               <div className="mb-4 flex justify-start">
                 <div className="max-w-md px-4 py-3 rounded-lg bg-gray-700 rounded-bl-none w-full">
@@ -144,14 +141,14 @@ export default function AssistantPage() {
                       <div key={idx} className="border-l-2 border-orange-500 pl-3 py-2">
                         <p className="text-gray-100 text-sm mb-1">🎮 <span className="font-semibold">{r.title}</span></p>
                         <p className="text-gray-400 text-xs mb-2">{r.why}</p>
-                        
-                          href={r.url || '#'}
-  target='_blank'
-  rel='noopener noreferrer'
-  className='text-orange-400 hover:text-orange-300 text-xs underline'
->
-  Pour en savoir plus sur {r.title}
-</a>
+                        <a 
+                          href={r.url || '#'} 
+                          target='_blank' 
+                          rel='noopener noreferrer' 
+                          className='text-orange-400 hover:text-orange-300 text-xs underline'
+                        >
+                          Pour en savoir plus sur {r.title}
+                        </a>
                       </div>
                     ))}
                   </div>
