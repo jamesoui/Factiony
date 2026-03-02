@@ -86,6 +86,19 @@ const Header: React.FC = () => {
           {t('nav.search')}
         </Link>
 
+      {user && (
+          <Link
+            to="/assistant"
+            className={`transition-colors ${
+              isActivePath('/assistant')
+                ? 'bg-orange-600 text-white py-2 px-4 rounded-lg'
+                : 'text-gray-200 hover:text-white'
+            }`}
+          >
+            🤖 Assistant IA
+          </Link>
+        )}
+
         {user && (
           <>
             <Link
