@@ -2,6 +2,33 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabaseClient';
 
+type RecommendationItem = {
+  slug: string;
+  title: string;
+  why: string;
+  url?: string;
+};
+
+const RecommendationCard: React.FC<{ recommendations: RecommendationItem[] }> = ({ recommendations }) => {
+  return (
+    <div className="space-y-4">
+      <p className="text-gray-100">Voilà 3 jeux pour toi :</p>
+      {recommendations.map((r, i) => (
+        <div key={i} className="border-l-2 border-orange-500 pl-4 py-2">
+          <p className="text-gray-100 mb-1">🎮 <span className="font-semibold">{r.title}</span></p>
+          <p className="text-gray-400 text-sm mb-2">{r.why}</p>
+          
+            href={r.url}
+            className="text-orange-500 hover:text-orange-400 text-sm underline"
+          >
+            Pour en savoir plus sur {r.title}
+          </a>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 type Role = 'user' | 'assistant';
 
 type ChatMessage = {
@@ -81,17 +108,25 @@ export default function AssistantPage() {
       if (!res.ok) throw new Error(`API error ${res.status}`);
 
       const data: AiRecoResponse = await res.json();
-      const lines: string[] = [];
 
-      // Recommendations (jeux)
-      if (data.recommendations?.length) {
-        lines.push('Voilà 3 jeux pour toi :\n');
-        for (const r of data.recommendations) {
-          lines.push(`🎮 **${r.title}**`);
-          lines.push(`   → ${r.why}`);
-          lines.push(`   ${r.url || `/game/${r.slug}`}\n`);
-        }
-      }
+if (data.recommendations?.length) {
+  // Ajoute le message avec les recos
+  setMessages((prev) => [...prev, { 
+    role: 'assistant', 
+    content: JSON.stringify({ type: 'recommendations', data: data.recommendations }) 
+  }]);
+} else if (data.answer) {
+  // Ajoute le message texte normal
+  const lines: string[] = [];
+  
+  if (data.answer) lines.push(data.answer);
+  if (data.has_community_context) lines.push('\n💬 _Basé sur l\'expérience de la communauté Factiony_');
+  if (data.follow_up_question) lines.push(`\n${data.follow_up_question}`);
+
+  const responseText = lines.join('\n') || 'Je n\'ai pas trouvé de réponse.';
+
+  setMessages((prev) => [...prev, { role: 'assistant', content: responseText }]);
+}
 
       // Answer (gameplay, tips, etc)
       if (data.answer) {
@@ -146,20 +181,30 @@ export default function AssistantPage() {
       </div>
 
       {/* Chat */}
-      <div className="bg-gray-800 rounded-xl border border-gray-700 p-6 h-96 overflow-y-auto mb-6 shadow-lg">
-        {messages.map((m, i) => (
-          <div key={i} className={`mb-4 flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div
-              className={`max-w-md px-4 py-3 rounded-lg whitespace-pre-wrap text-sm leading-relaxed ${
-                m.role === 'user'
-                  ? 'bg-orange-600 text-white rounded-br-none'
-                  : 'bg-gray-700 text-gray-100 rounded-bl-none'
-              }`}
-            >
-              {m.content}
-            </div>
-          </div>
-        ))}
+      {messages.map((m, i) => {
+  let isRecommendations = false;
+  let recsData = null;
+  
+  try {
+    const parsed = JSON.parse(m.content);
+    if (parsed.type === 'recommendations') {
+      isRecommendations = true;
+      recsData = parsed.data;
+    }
+  } catch (e) {}
+
+  return (
+    <div key={i} className={`mb-4 flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+      <div className={`${m.role === 'user' ? 'bg-orange-600 text-white' : 'bg-gray-700 text-gray-100'} px-4 py-3 rounded-lg text-sm max-w-md`}>
+        {isRecommendations && recsData ? (
+          <RecommendationCard recommendations={recsData} />
+        ) : (
+          <div className="whitespace-pre-wrap">{m.content}</div>
+        )}
+      </div>
+    </div>
+  );
+})}
         {loading && (
           <div className="text-gray-400 text-sm">
             ⏳ Factiony réfléchit…
