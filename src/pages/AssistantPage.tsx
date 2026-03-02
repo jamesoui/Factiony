@@ -2,38 +2,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabaseClient';
 
-type RecommendationItem = {
-  slug: string;
-  title: string;
-  why: string;
-  url?: string;
-};
-
-const RecommendationCard: React.FC<{ recommendations: RecommendationItem[] }> = ({ recommendations }) => {
-  return (
-    <div className="space-y-4">
-      <p className="text-gray-100">Voilà 3 jeux pour toi :</p>
-      {recommendations.map((r, i) => (
-        <div key={i} className="border-l-2 border-orange-500 pl-4 py-2">
-          <p className="text-gray-100 mb-1">🎮 <span className="font-semibold">{r.title}</span></p>
-          <p className="text-gray-400 text-sm mb-2">{r.why}</p>
-          
-            href={r.url}
-            className="text-orange-500 hover:text-orange-400 text-sm underline"
-          >
-            Pour en savoir plus sur {r.title}
-          </a>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-type Role = 'user' | 'assistant';
+type Role = 'user' | 'assistant' | 'recommendations';
 
 type ChatMessage = {
   role: Role;
   content: string;
+  recommendations?: Array<{ slug: string; title: string; why: string; url?: string }>;
 };
 
 type AiRecoResponse = {
@@ -42,13 +16,6 @@ type AiRecoResponse = {
   answer?: string;
   has_community_context?: boolean;
 };
-
-const QUICK_PROMPTS = [
-  { label: '🎮 Recommande-moi un jeu', prompt: 'Recommande-moi un jeu en ce moment' },
-  { label: '⚔️ Comment battre ce boss ?', prompt: 'Comment je bats ce boss difficile ?' },
-  { label: '🏗️ Meilleur build ?', prompt: 'Quel est le meilleur build en ce moment ?' },
-  { label: '💡 Tips & tricks', prompt: 'Donne-moi des tips utiles' },
-];
 
 export default function AssistantPage() {
   const { user } = useAuth();
@@ -74,13 +41,6 @@ export default function AssistantPage() {
 
   useEffect(() => {
     document.title = 'Assistant IA Gaming - Factiony';
-    const meta = document.querySelector('meta[name="description"]');
-    if (meta) {
-      meta.setAttribute(
-        'content',
-        'Assistant IA personnalisé pour tes recommandations de jeux et questions gaming. Basé sur ton historique Factiony.'
-      );
-    }
   }, []);
 
   async function sendMessage(query?: string) {
@@ -109,59 +69,37 @@ export default function AssistantPage() {
 
       const data: AiRecoResponse = await res.json();
 
-if (data.recommendations?.length) {
-  // Ajoute le message avec les recos
-  setMessages((prev) => [...prev, { 
-    role: 'assistant', 
-    content: JSON.stringify({ type: 'recommendations', data: data.recommendations }) 
-  }]);
-} else if (data.answer) {
-  // Ajoute le message texte normal
-  const lines: string[] = [];
-  
-  if (data.answer) lines.push(data.answer);
-  if (data.has_community_context) lines.push('\n💬 _Basé sur l\'expérience de la communauté Factiony_');
-  if (data.follow_up_question) lines.push(`\n${data.follow_up_question}`);
+      // Si ce sont des recos
+      if (data.recommendations?.length) {
+        setMessages((prev) => [...prev, {
+          role: 'recommendations',
+          content: '',
+          recommendations: data.recommendations,
+        }]);
+      }
 
-  const responseText = lines.join('\n') || 'Je n\'ai pas trouvé de réponse.';
-
-  setMessages((prev) => [...prev, { role: 'assistant', content: responseText }]);
-}
-
-      // Answer (gameplay, tips, etc)
+      // Si c'est une réponse texte
       if (data.answer) {
-        lines.push(data.answer);
+        const lines: string[] = [data.answer];
+        if (data.has_community_context) lines.push('\n💬 _Basé sur l\'expérience de la communauté Factiony_');
+        if (data.follow_up_question) lines.push(`\n${data.follow_up_question}`);
+
+        setMessages((prev) => [...prev, { role: 'assistant', content: lines.join('\n') }]);
       }
 
-      // Community context badge
-      if (data.has_community_context) {
-        lines.push('\n💬 _Basé sur l\'expérience de la communauté Factiony_');
-      }
-
-      // Follow-up
-      if (data.follow_up_question) {
-        lines.push('');
-        lines.push(data.follow_up_question);
-      }
-
-      const responseText = lines.join('\n') || 'Je n\'ai pas trouvé de réponse. Reformule ?';
-
-      setMessages((prev) => [...prev, { role: 'assistant', content: responseText }]);
-
-      // Save conversation
       if (user?.id) {
         await supabase
           .from('ai_conversations')
           .upsert({
             user_id: user.id,
             session_id: sessionId,
-            messages: JSON.stringify([...messages, { role: 'user', content: finalQuery }, { role: 'assistant', content: responseText }]),
+            messages: JSON.stringify([...messages, { role: 'user', content: finalQuery }]),
             last_query: finalQuery,
           })
           .catch(() => {});
       }
     } catch (e: any) {
-      setMessages((prev) => [...prev, { role: 'assistant', content: 'Désolé, j\'ai eu une erreur. Réessaie dans un instant.' }]);
+      setMessages((prev) => [...prev, { role: 'assistant', content: 'Désolé, j\'ai eu une erreur. Réessaie.' }]);
       console.error(e);
     } finally {
       setLoading(false);
@@ -170,66 +108,65 @@ if (data.recommendations?.length) {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 bg-gray-900 min-h-screen">
-      {/* Header */}
       <div className="mb-8">
-        <h1 className="text-4xl font-bold text-white mb-2">
-          On joue à quoi aujourd'hui ? 🤖
-        </h1>
-        <p className="text-gray-400">
-          {user ? 'Basé sur tes goûts Factiony' : 'Assistant gaming intelligent'}
-        </p>
+        <h1 className="text-4xl font-bold text-white mb-2">On joue à quoi aujourd'hui ? 🤖</h1>
+        <p className="text-gray-400">{user ? 'Basé sur tes goûts Factiony' : 'Assistant gaming intelligent'}</p>
       </div>
 
-      {/* Chat */}
-      {messages.map((m, i) => {
-  let isRecommendations = false;
-  let recsData = null;
-  
-  try {
-    const parsed = JSON.parse(m.content);
-    if (parsed.type === 'recommendations') {
-      isRecommendations = true;
-      recsData = parsed.data;
-    }
-  } catch (e) {}
+      <div className="bg-gray-800 rounded-xl border border-gray-700 p-6 h-96 overflow-y-auto mb-6">
+        {messages.map((m, i) => (
+          <div key={i}>
+            {/* Message utilisateur */}
+            {m.role === 'user' && (
+              <div className="mb-4 flex justify-end">
+                <div className="max-w-md px-4 py-3 rounded-lg whitespace-pre-wrap text-sm bg-orange-600 text-white rounded-br-none">
+                  {m.content}
+                </div>
+              </div>
+            )}
 
-  return (
-    <div key={i} className={`mb-4 flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-      <div className={`${m.role === 'user' ? 'bg-orange-600 text-white' : 'bg-gray-700 text-gray-100'} px-4 py-3 rounded-lg text-sm max-w-md`}>
-        {isRecommendations && recsData ? (
-          <RecommendationCard recommendations={recsData} />
-        ) : (
-          <div className="whitespace-pre-wrap">{m.content}</div>
-        )}
-      </div>
-    </div>
-  );
-})}
-        {loading && (
-          <div className="text-gray-400 text-sm">
-            ⏳ Factiony réfléchit…
+            {/* Message assistant texte */}
+            {m.role === 'assistant' && (
+              <div className="mb-4 flex justify-start">
+                <div className="max-w-md px-4 py-3 rounded-lg whitespace-pre-wrap text-sm bg-gray-700 text-gray-100 rounded-bl-none">
+                  {m.content}
+                </div>
+              </div>
+            )}
+
+            {/* Recommendations card */}
+            {m.role === 'recommendations' && m.recommendations && (
+              <div className="mb-4 flex justify-start">
+                <div className="max-w-md px-4 py-3 rounded-lg bg-gray-700 rounded-bl-none w-full">
+                  <p className="text-gray-100 font-semibold mb-3">Voilà 3 jeux pour toi :</p>
+                  <div className="space-y-3">
+                    {m.recommendations.map((r, idx) => (
+                      <div key={idx} className="border-l-2 border-orange-500 pl-3 py-2">
+                        <p className="text-gray-100 text-sm mb-1">🎮 <span className="font-semibold">{r.title}</span></p>
+                        <p className="text-gray-400 text-xs mb-2">{r.why}</p>
+                        
+                          href={r.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-orange-400 hover:text-orange-300 text-xs underline"
+                        >
+                          Pour en savoir plus sur {r.title}
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
+        ))}
+
+        {loading && (
+          <div className="text-gray-400 text-sm">⏳ Factiony réfléchit…</div>
         )}
         <div ref={bottomRef} />
       </div>
 
-      {/* Quick prompts */}
-      {messages.length <= 1 && (
-        <div className="grid grid-cols-2 gap-2 mb-6">
-          {QUICK_PROMPTS.map((p, i) => (
-            <button
-              key={i}
-              onClick={() => sendMessage(p.prompt)}
-              disabled={loading}
-              className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-xs font-medium transition text-left truncate"
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Input */}
       <div className="flex gap-3">
         <input
           value={input}
@@ -253,7 +190,6 @@ if (data.recommendations?.length) {
         </button>
       </div>
 
-      {/* Footer */}
       <div className="mt-8 pt-6 border-t border-gray-700 text-center text-gray-500 text-xs">
         <p>Powered by Factiony AI • Les données Factiony rendent tes recos uniques</p>
       </div>
