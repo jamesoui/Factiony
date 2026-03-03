@@ -64,7 +64,6 @@ export default async (request: Request) => {
     return jsonResponse({ error: "Method not allowed" }, 405, corsHeaders);
   }
 
-  // ---- ENV ----
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
   const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
   const MISTRAL_API_KEY = Deno.env.get("MISTRAL_API_KEY");
@@ -87,7 +86,6 @@ export default async (request: Request) => {
     );
   }
 
-  // ---- BODY ----
   let body: any;
   try {
     body = await request.json();
@@ -103,7 +101,6 @@ export default async (request: Request) => {
   const pageSizeRaw = Number(body?.page_size ?? 30);
   const page_size = Number.isFinite(pageSizeRaw) ? Math.min(Math.max(pageSizeRaw, 3), 50) : 30;
 
-  // ---- STEP 1: Identify user + get context ----
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const token = getBearerToken(request);
   let userContext: UserContext = { userId: null, recent_ratings: [], recent_wishlist: [] };
@@ -137,7 +134,6 @@ export default async (request: Request) => {
     }
   }
 
-  // ---- STEP 2: Keyword search sur comments + forum ----
   let communityContext: string[] = [];
   let hasCommunitContext = false;
 
@@ -158,13 +154,13 @@ export default async (request: Request) => {
       if ((comments?.length ?? 0) > 0 || (posts?.length ?? 0) > 0) {
         communityContext = [];
         if (comments && comments.length > 0) {
-          communityContext.push("Comments communauté:");
+          communityContext.push("Community insights:");
           comments.forEach((c: any) => {
             communityContext.push(`- "${c.content.slice(0, 80)}..."`);
           });
         }
         if (posts && posts.length > 0) {
-          communityContext.push("Posts forum:");
+          communityContext.push("Forum posts:");
           posts.forEach((p: any) => {
             communityContext.push(`- "${p.content.slice(0, 80)}..."`);
           });
@@ -176,7 +172,6 @@ export default async (request: Request) => {
     }
   }
 
-  // ---- STEP 3: Fetch candidates ----
   let candidatesRes: Response | null = null;
   let candidatesMode: "vector" | "keyword" | "none" = "none";
 
@@ -253,46 +248,53 @@ export default async (request: Request) => {
     );
   }
 
-  // ---- STEP 4: LLM (Mistral) avec contexte complet ----
   const systemPrompt = [
-    "Tu es l'Assistant IA gaming de Factiony.",
-    "Tu peux :",
-    "1. Recommander des jeux de la liste fournie",
-    "2. Répondre à des questions gaming (boss, builds, strats, tips)",
-    "3. Donner des conseils basés sur le profil utilisateur",
+    "Tu es Factiony AI, l'assistant gaming officiel.",
     "",
-    "Pour les recos : réponds en JSON avec recommendations, why, et si applicable personal_message.",
-    "Pour les autres questions : réponds en texte naturel.",
+    "RÈGLES STRICTES :",
+    "1. TU DOIS CHOISIR DES JEUX UNIQUEMENT DANS LA LISTE FOURNIE.",
+    "2. Ne mentionne JAMAIS de jeux qui ne sont pas dans la liste (pas de GTA, pas de jeux en développement, rien d'autre).",
+    "3. Si la demande ne peut pas être satisfaite avec la liste, dis-le clairement.",
     "",
-    'JSON format EXACT si c\'est des recos: {"recommendations":[{"slug":"...","title":"...","why":"...",id":"..."}],"personal_message":"...","follow_up_question":"..."}',
-    "Sinon, réponds directement en texte.",
+    "RÉPONSES VALIDES :",
+    "- Recos: JSON avec 'recommendations', 'why', 'id', 'slug', 'personal_message'.",
+    "- Questions gaming: Réponds en texte naturel (boss tips, builds, strats).",
     "",
-    "Sois concis, pratique, utilise le contexte utilisateur.",
-    "Si tu recommandes des jeux (recos), génère un champ 'personal_message' qui répond intelligemment à la demande initiale.",
-    "Exemple: si l'utilisateur demande 'un jeu coop avec ma copine', le message parle de copine. Si juste 'un jeu solo', pas de mention de copine.",
-    "Le message doit être court (1 phrase max) et naturel.",
+    "FORMAT JSON EXACT pour recos:",
+    '{"recommendations":[{"slug":"...","title":"...","why":"...","id":"..."}],"personal_message":"...","follow_up_question":"..."}',
+    "",
+    "QUALITÉ DU 'why' :",
+    "- Court (1 phrase)",
+    "- Explique POURQUOI le jeu correspond à la demande.",
+    "- Mentionne les éléments clés (coop, difficulté, plateforme, etc).",
+    "",
+    "personal_message :",
+    "- Réagis à la demande spécifique de l'utilisateur.",
+    "- Si 'coop avec copine': parle de copine.",
+    "- Si 'solo chill': pas de mention coop.",
+    "- 1 phrase max, naturelle et engageante.",
   ].join("\n");
 
   const userContextStr = userContext.userId
     ? [
-        "USER CONTEXT:",
-        `Jeux aimés: ${userContext.recent_ratings.slice(0, 5).map((r) => `${r.game_slug} (${r.rating}/10)`).join(", ")}`,
+        "USER PROFILE:",
+        `Top games: ${userContext.recent_ratings.slice(0, 5).map((r) => `${r.game_slug} (${r.rating}/10)`).join(", ")}`,
         `Wishlist: ${userContext.recent_wishlist.slice(0, 5).map((w) => w.game_name).join(", ")}`,
       ].join("\n")
-    : "USER CONTEXT: Utilisateur anonyme";
+    : "USER PROFILE: Anonymous user";
 
   const communityStr = communityContext.length > 0
-    ? ["COMMUNITY WISDOM:", ...communityContext].join("\n")
+    ? ["COMMUNITY CONTEXT:", ...communityContext].join("\n")
     : "";
 
   const userPrompt = [
     userContextStr,
     communityStr,
     "",
-    `Demande utilisateur: "${query}"`,
+    `USER REQUEST: "${query}"`,
     "",
-    "Jeux candidats (pour les recos uniquement):",
-    JSON.stringify(items),
+    "AVAILABLE GAMES (CHOOSE ONLY FROM THIS LIST):",
+    JSON.stringify(items.map(i => ({ id: i.id, slug: i.slug, name: i.name, genres: i.genres, platforms: i.platforms }))),
   ]
     .filter((x) => x)
     .join("\n");
@@ -305,7 +307,7 @@ export default async (request: Request) => {
     },
     body: JSON.stringify({
       model: MISTRAL_MODEL,
-      temperature: 0.7,
+      temperature: 0.6,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },

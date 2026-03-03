@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabaseClient';
+import { Trash2, Plus } from 'lucide-react';
 
 type Role = 'user' | 'assistant' | 'recommendations';
 
@@ -18,6 +19,13 @@ type AiRecoResponse = {
   personal_message?: string;
 };
 
+type Conversation = {
+  user_id: string;
+  session_id: string;
+  last_query: string;
+  updated_at: string;
+};
+
 export default function AssistantPage() {
   const { user } = useAuth();
   const firstName = user?.user_metadata?.full_name?.split(' ')[0] || 'Joueur';
@@ -31,9 +39,11 @@ export default function AssistantPage() {
     },
   ]);
 
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [sessionId] = useState(() => crypto.randomUUID());
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -42,7 +52,66 @@ export default function AssistantPage() {
 
   useEffect(() => {
     document.title = 'Assistant IA Gaming - Factiony';
-  }, []);
+    if (user?.id) loadConversations();
+  }, [user?.id]);
+
+  async function loadConversations() {
+    if (!user?.id) return;
+    try {
+      const { data } = await supabase
+        .from('ai_conversations')
+        .select('user_id, session_id, last_query, updated_at')
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false })
+        .limit(10);
+
+      setConversations(data ?? []);
+    } catch (e) {
+      console.error('Load conversations error:', e);
+    }
+  }
+
+  async function loadConversation(sessionId: string) {
+    if (!user?.id) return;
+    try {
+      const { data } = await supabase
+        .from('ai_conversations')
+        .select('messages')
+        .eq('user_id', user.id)
+        .eq('session_id', sessionId)
+        .single();
+
+      if (data?.messages) {
+        setMessages(JSON.parse(data.messages));
+      }
+    } catch (e) {
+      console.error('Load conversation error:', e);
+    }
+  }
+
+  async function deleteConversation(sessionId: string) {
+    if (!user?.id) return;
+    try {
+      await supabase
+        .from('ai_conversations')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('session_id', sessionId);
+
+      loadConversations();
+    } catch (e) {
+      console.error('Delete conversation error:', e);
+    }
+  }
+
+  function startNewConversation() {
+    setMessages([
+      {
+        role: 'assistant',
+        content: `Salut ${firstName} 👋\n\nOn joue à quoi aujourd'hui ?\n\nJe peux te recommander des jeux basé sur tes goûts Factiony, répondre à tes questions gaming (boss, builds, strats), et utiliser la sagesse de notre communauté !`,
+      },
+    ]);
+  }
 
   async function sendMessage(query?: string) {
     const finalQuery = (query || input).trim();
@@ -73,7 +142,6 @@ export default function AssistantPage() {
       const data: AiRecoResponse = await res.json();
       let hasAddedRecos = false;
 
-      // Si ce sont des recos
       if (data.recommendations?.length) {
         setMessages((prev) => [...prev, {
           role: 'recommendations',
@@ -83,7 +151,6 @@ export default function AssistantPage() {
         hasAddedRecos = true;
       }
 
-      // Si c'est une réponse texte
       if (data.answer) {
         const lines: string[] = [data.answer];
         if (data.has_community_context) lines.push('\n💬 _Basé sur l\'expérience de la communauté Factiony_');
@@ -92,27 +159,27 @@ export default function AssistantPage() {
         setMessages((prev) => [...prev, { role: 'assistant', content: lines.join('\n') }]);
       }
 
-      // Ajoute le message perso SEULEMENT si recos et message perso existe
       if (hasAddedRecos && data.recommendations?.length && data.personal_message) {
         const followUp = `\n\n📱 ${data.personal_message}`;
         setMessages((prev) => [...prev, { role: 'assistant', content: followUp }]);
       }
 
-      // Sauvegarde conversation
       if (user?.id) {
-  try {
-    await supabase
-      .from('ai_conversations')
-      .upsert({
-        user_id: user.id,
-        session_id: sessionId,
-        messages: JSON.stringify([...messages, { role: 'user', content: finalQuery }]),
-        last_query: finalQuery,
-      });
-  } catch (saveErr) {
-    console.error('Save error:', saveErr);
-  }
-}
+        try {
+          await supabase
+            .from('ai_conversations')
+            .upsert({
+              user_id: user.id,
+              session_id: sessionId,
+              messages: JSON.stringify([...messages, { role: 'user', content: finalQuery }]),
+              last_query: finalQuery,
+            });
+
+          loadConversations();
+        } catch (saveErr) {
+          console.error('Save error:', saveErr);
+        }
+      }
     } catch (e: any) {
       console.error('Error:', e);
       setMessages((prev) => [...prev, { 
@@ -125,88 +192,156 @@ export default function AssistantPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8 bg-gray-900 min-h-screen">
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold text-white mb-2">On joue à quoi aujourd'hui ? 🤖</h1>
-        <p className="text-gray-400">{user ? 'Basé sur tes goûts Factiony' : 'Assistant gaming intelligent'}</p>
-      </div>
+    <div className="flex h-screen bg-gray-900">
+      {/* Sidebar */}
+      {user && (
+        <div className={`${sidebarOpen ? 'w-64' : 'w-0'} transition-all bg-gray-800 border-r border-gray-700 overflow-hidden flex flex-col`}>
+          <div className="p-4 border-b border-gray-700">
+            <button
+              onClick={startNewConversation}
+              className="w-full flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg font-semibold transition"
+            >
+              <Plus size={18} />
+              Nouvelle conv.
+            </button>
+          </div>
 
-      <div className="bg-gray-800 rounded-xl border border-gray-700 p-6 h-96 overflow-y-auto mb-6">
-        {messages.map((m, i) => (
-          <div key={i}>
-            {m.role === 'user' && (
-              <div className="mb-4 flex justify-end">
-                <div className="max-w-md px-4 py-3 rounded-lg whitespace-pre-wrap text-sm bg-orange-600 text-white rounded-br-none">
-                  {m.content}
+          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            <p className="text-xs text-gray-400 font-semibold mb-3">Historique</p>
+            {conversations.length === 0 ? (
+              <p className="text-xs text-gray-500">Aucune conversation</p>
+            ) : (
+              conversations.map((conv) => (
+                <div
+                  key={conv.session_id}
+                  className="group bg-gray-700 hover:bg-gray-600 rounded-lg p-3 cursor-pointer transition text-left"
+                >
+                  <button
+                    onClick={() => loadConversation(conv.session_id)}
+                    className="w-full text-left"
+                  >
+                    <p className="text-xs font-medium text-white truncate">{conv.last_query}</p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {new Date(conv.updated_at).toLocaleDateString('fr-FR')}
+                    </p>
+                  </button>
+                  <button
+                    onClick={() => deleteConversation(conv.session_id)}
+                    className="opacity-0 group-hover:opacity-100 absolute right-2 top-2 text-gray-400 hover:text-red-500 transition"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
-              </div>
-            )}
-
-            {m.role === 'assistant' && (
-              <div className="mb-4 flex justify-start">
-                <div className="max-w-md px-4 py-3 rounded-lg whitespace-pre-wrap text-sm bg-gray-700 text-gray-100 rounded-bl-none">
-                  {m.content}
-                </div>
-              </div>
-            )}
-
-            {m.role === 'recommendations' && m.recommendations && (
-              <div className="mb-4 flex justify-start">
-                <div className="max-w-md px-4 py-3 rounded-lg bg-gray-700 rounded-bl-none w-full">
-                  <p className="text-gray-100 font-semibold mb-3">Voilà 3 jeux pour toi :</p>
-                  <div className="space-y-3">
-                    {m.recommendations.map((r, idx) => (
-                      <div key={idx} className="border-l-2 border-orange-500 pl-3 py-2">
-                        <p className="text-gray-100 text-sm mb-1">🎮 <span className="font-semibold">{r.title}</span></p>
-                        <p className="text-gray-400 text-xs mb-2">{r.why}</p>
-                        <a 
-                          href={r.url || '#'} 
-                          target='_blank' 
-                          rel='noopener noreferrer' 
-                          className='text-orange-400 hover:text-orange-300 text-xs underline'
-                        >
-                          Pour en savoir plus sur {r.title}
-                        </a>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
+              ))
             )}
           </div>
-        ))}
+        </div>
+      )}
 
-        {loading && (
-          <div className="text-gray-400 text-sm">⏳ Factiony réfléchit…</div>
-        )}
-        <div ref={bottomRef} />
-      </div>
+      {/* Main Chat */}
+      <div className="flex-1 flex flex-col">
+        {/* Header */}
+        <div className="bg-gray-800 border-b border-gray-700 p-4">
+          <div className="flex items-center justify-between max-w-5xl mx-auto">
+            <div>
+              <h1 className="text-2xl font-bold text-white">On joue à quoi aujourd'hui ? 🤖</h1>
+              <p className="text-sm text-gray-400">{user ? 'Basé sur tes goûts Factiony' : 'Assistant gaming intelligent'}</p>
+            </div>
+            {user && (
+              <button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="text-gray-400 hover:text-white transition"
+              >
+                {sidebarOpen ? '✕' : '☰'}
+              </button>
+            )}
+          </div>
+        </div>
 
-      <div className="flex gap-3">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              sendMessage();
-            }
-          }}
-          placeholder='Ex: "Un jeu coop sur PS5" ou "Comment battre Malenia?"'
-          className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 transition text-sm"
-          disabled={loading}
-        />
-        <button
-          onClick={() => sendMessage()}
-          disabled={loading || !input.trim()}
-          className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white px-6 py-3 rounded-lg font-semibold transition whitespace-nowrap"
-        >
-          Envoyer
-        </button>
-      </div>
+        {/* Chat Area */}
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="max-w-3xl mx-auto">
+            <div className="bg-gray-800 rounded-xl border border-gray-700 p-6 min-h-96">
+              {messages.map((m, i) => (
+                <div key={i}>
+                  {m.role === 'user' && (
+                    <div className="mb-4 flex justify-end">
+                      <div className="max-w-md px-4 py-3 rounded-lg whitespace-pre-wrap text-sm bg-orange-600 text-white rounded-br-none">
+                        {m.content}
+                      </div>
+                    </div>
+                  )}
 
-      <div className="mt-8 pt-6 border-t border-gray-700 text-center text-gray-500 text-xs">
-        <p>Powered by Factiony AI • Les données Factiony rendent tes recos uniques</p>
+                  {m.role === 'assistant' && (
+                    <div className="mb-4 flex justify-start">
+                      <div className="max-w-md px-4 py-3 rounded-lg whitespace-pre-wrap text-sm bg-gray-700 text-gray-100 rounded-bl-none">
+                        {m.content}
+                      </div>
+                    </div>
+                  )}
+
+                  {m.role === 'recommendations' && m.recommendations && (
+                    <div className="mb-4 flex justify-start">
+                      <div className="max-w-md px-4 py-3 rounded-lg bg-gray-700 rounded-bl-none w-full">
+                        <p className="text-gray-100 font-semibold mb-3">Voilà 3 jeux pour toi :</p>
+                        <div className="space-y-3">
+                          {m.recommendations.map((r, idx) => (
+                            <div key={idx} className="border-l-2 border-orange-500 pl-3 py-2">
+                              <p className="text-gray-100 text-sm mb-1">🎮 <span className="font-semibold">{r.title}</span></p>
+                              <p className="text-gray-400 text-xs mb-2">{r.why}</p>
+                              <a 
+                                href={r.url || '#'} 
+                                target='_blank' 
+                                rel='noopener noreferrer' 
+                                className='text-orange-400 hover:text-orange-300 text-xs underline'
+                              >
+                                Pour en savoir plus sur {r.title}
+                              </a>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {loading && (
+                <div className="text-gray-400 text-sm">⏳ Factiony réfléchit…</div>
+              )}
+              <div ref={bottomRef} />
+            </div>
+          </div>
+        </div>
+
+        {/* Input Area */}
+        <div className="bg-gray-800 border-t border-gray-700 p-4">
+          <div className="max-w-3xl mx-auto">
+            <div className="flex gap-3">
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                  }
+                }}
+                placeholder='Ex: "Un jeu coop sur PS5" ou "Comment battre Malenia?"'
+                className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 transition text-sm"
+                disabled={loading}
+              />
+              <button
+                onClick={() => sendMessage()}
+                disabled={loading || !input.trim()}
+                className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white px-6 py-3 rounded-lg font-semibold transition whitespace-nowrap"
+              >
+                Envoyer
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-2 text-center">Powered by Factiony AI</p>
+          </div>
+        </div>
       </div>
     </div>
   );
