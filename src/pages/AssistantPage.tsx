@@ -17,6 +17,11 @@ type AiRecoResponse = {
   has_community_context?: boolean;
 };
 
+const FOLLOW_UP_MESSAGE = (count: number) => 
+  count > 0 
+    ? '\n\n📱 Est-ce que l\'un de ces jeux te correspond (ou correspond à ta copine) ? Dis-moi et je peux mettre à jour si tu veux d\'autres recos !'
+    : '';
+
 export default function AssistantPage() {
   const { user } = useAuth();
   const firstName = user?.user_metadata?.full_name?.split(' ')[0] || 'Joueur';
@@ -68,6 +73,7 @@ export default function AssistantPage() {
       if (!res.ok) throw new Error(`API error ${res.status}`);
 
       const data: AiRecoResponse = await res.json();
+      let hasAddedRecos = false;
 
       // Si ce sont des recos
       if (data.recommendations?.length) {
@@ -76,6 +82,7 @@ export default function AssistantPage() {
           content: '',
           recommendations: data.recommendations,
         }]);
+        hasAddedRecos = true;
       }
 
       // Si c'est une réponse texte
@@ -87,6 +94,13 @@ export default function AssistantPage() {
         setMessages((prev) => [...prev, { role: 'assistant', content: lines.join('\n') }]);
       }
 
+      // Ajoute le follow-up perso si recos
+      if (hasAddedRecos && data.recommendations?.length) {
+        const followUp = FOLLOW_UP_MESSAGE(data.recommendations.length);
+        setMessages((prev) => [...prev, { role: 'assistant', content: followUp }]);
+      }
+
+      // Sauvegarde conversation
       if (user?.id) {
         await supabase
           .from('ai_conversations')
@@ -98,10 +112,11 @@ export default function AssistantPage() {
           })
           .catch(() => {});
       }
+
+      setLoading(false);
     } catch (e: any) {
       setMessages((prev) => [...prev, { role: 'assistant', content: 'Désolé, j\'ai eu une erreur. Réessaie.' }]);
       console.error(e);
-    } finally {
       setLoading(false);
     }
   }
