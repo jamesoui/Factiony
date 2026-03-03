@@ -80,7 +80,7 @@ export default async (request: Request) => {
   }
   if (!SEARCH_FN_URL && !VECTOR_SEARCH_FN_URL) {
     return jsonResponse(
-      { error: "Missing SUPABASE_SEARCH_FN_URL and SUPABASE_VECTOR_SEARCH_FN_URL (need at least one)" },
+      { error: "Missing SUPABASE_SEARCH_FN_URL and SUPABASE_VECTOR_SEARCH_FN_URL" },
       500,
       corsHeaders
     );
@@ -141,13 +141,13 @@ export default async (request: Request) => {
     try {
       const { data: comments } = await supabase
         .from("review_comments")
-        .select("content,created_at")
+        .select("content")
         .ilike("content", `%${query.slice(0, 30)}%`)
         .limit(3);
 
       const { data: posts } = await supabase
         .from("forum_posts")
-        .select("content,created_at")
+        .select("content")
         .ilike("content", `%${query.slice(0, 30)}%`)
         .limit(2);
 
@@ -155,14 +155,14 @@ export default async (request: Request) => {
         communityContext = [];
         if (comments && comments.length > 0) {
           communityContext.push("Community insights:");
-          comments.forEach((c: any) => {
-            communityContext.push(`- "${c.content.slice(0, 80)}..."`);
+          comments.slice(0, 2).forEach((c: any) => {
+            communityContext.push(`- "${c.content.slice(0, 60)}..."`);
           });
         }
         if (posts && posts.length > 0) {
-          communityContext.push("Forum posts:");
-          posts.forEach((p: any) => {
-            communityContext.push(`- "${p.content.slice(0, 80)}..."`);
+          communityContext.push("Forum tips:");
+          posts.slice(0, 2).forEach((p: any) => {
+            communityContext.push(`- "${p.content.slice(0, 60)}..."`);
           });
         }
         hasCommunitContext = true;
@@ -209,7 +209,7 @@ export default async (request: Request) => {
 
   if (!candidatesRes || !candidatesRes.ok) {
     return jsonResponse(
-      { error: "candidates fetch failed", status: candidatesRes?.status ?? 0 },
+      { error: "candidates fetch failed" },
       500,
       corsHeaders
     );
@@ -233,7 +233,7 @@ export default async (request: Request) => {
       platforms: (g.platforms ?? []).map((x: any) => (x?.name ?? x).toString()).slice(0, 6),
       desc: (g.description_raw ?? g.description ?? "").toString().slice(0, 240),
     }))
-    .filter((x: Candidate) => x.slug && x.name);
+    .filter((x: Candidate) => x.slug && x.name && !x.name.toUpperCase().includes("VIDEO"));
 
   if (items.length === 0) {
     return jsonResponse(
@@ -241,7 +241,6 @@ export default async (request: Request) => {
         query,
         recommendations: [],
         answer: "Je n'ai pas trouvé de jeux correspondant. Reformule ta demande ?",
-        follow_up_question: "Tu cherches plutôt quel type de jeu (plateforme, genre, difficulté) ?",
       },
       200,
       corsHeaders
@@ -249,54 +248,47 @@ export default async (request: Request) => {
   }
 
   const systemPrompt = [
-    "Tu es Factiony AI, l'assistant gaming officiel.",
+    "ROLE: Tu es Factiony AI, l'assistant gaming officiel strictement.",
     "",
-    "RÈGLES STRICTES :",
-    "1. TU DOIS CHOISIR DES JEUX UNIQUEMENT DANS LA LISTE FOURNIE.",
-    "2. Ne mentionne JAMAIS de jeux qui ne sont pas dans la liste (pas de GTA, pas de jeux en développement, rien d'autre).",
-    "3. Si la demande ne peut pas être satisfaite avec la liste, dis-le clairement.",
+    "RULES ABSOLUES:",
+    "1. JAMAIS recommander de jeux HORS de la liste fournie.",
+    "2. JAMAIS mentionner YouTube, vidéos, BD, mangas, films, comics.",
+    "3. SI la demande ne correspond à AUCUN jeu de la liste → réponds 'Je n\'ai pas de match dans ma base'.",
+    "4. IGNORE les questions sur films/séries/vidéos/BDs complètement.",
     "",
-    "RÉPONSES VALIDES :",
-    "- Recos: JSON avec 'recommendations', 'why', 'id', 'slug', 'personal_message'.",
-    "- Questions gaming: Réponds en texte naturel (boss tips, builds, strats).",
+    "RÉPONSES VALIDES:",
+    "TYPE 1: Recos de jeux",
+    '  JSON: {"recommendations":[{"slug":"...","title":"...","why":"...","id":"..."}],"personal_message":"..."}',
     "",
-    "FORMAT JSON EXACT pour recos:",
-    '{"recommendations":[{"slug":"...","title":"...","why":"...","id":"..."}],"personal_message":"...","follow_up_question":"..."}',
+    "TYPE 2: Questions gaming",
+    "  Texte: Explique la mécanique, le build, le boss, la stratégie.",
     "",
-    "QUALITÉ DU 'why' :",
-    "- Court (1 phrase)",
-    "- Explique POURQUOI le jeu correspond à la demande.",
-    "- Mentionne les éléments clés (coop, difficulté, plateforme, etc).",
-    "",
-    "personal_message :",
-    "- Réagis à la demande spécifique de l'utilisateur.",
-    "- Si 'coop avec copine': parle de copine.",
-    "- Si 'solo chill': pas de mention coop.",
-    "- 1 phrase max, naturelle et engageante.",
+    "QUALITÉ CRITÈRES:",
+    "- 'why': 1 phrase max, explique POURQUOI ce jeu.",
+    "- 'personal_message': Réponds à la demande spécifique (coop, solo, plateforme).",
+    "- Toujours inclure 'id' et 'slug' pour les recos.",
   ].join("\n");
 
   const userContextStr = userContext.userId
     ? [
         "USER PROFILE:",
-        `Top games: ${userContext.recent_ratings.slice(0, 5).map((r) => `${r.game_slug} (${r.rating}/10)`).join(", ")}`,
+        `Games: ${userContext.recent_ratings.slice(0, 5).map((r) => r.game_slug).join(", ")}`,
         `Wishlist: ${userContext.recent_wishlist.slice(0, 5).map((w) => w.game_name).join(", ")}`,
       ].join("\n")
-    : "USER PROFILE: Anonymous user";
+    : "USER PROFILE: Anonymous";
 
-  const communityStr = communityContext.length > 0
-    ? ["COMMUNITY CONTEXT:", ...communityContext].join("\n")
-    : "";
+  const communityStr = communityContext.length > 0 ? ["COMMUNITY:", ...communityContext].join("\n") : "";
 
   const userPrompt = [
     userContextStr,
     communityStr,
     "",
-    `USER REQUEST: "${query}"`,
+    `REQUEST: "${query}"`,
     "",
-    "AVAILABLE GAMES (CHOOSE ONLY FROM THIS LIST):",
-    JSON.stringify(items.map(i => ({ id: i.id, slug: i.slug, name: i.name, genres: i.genres, platforms: i.platforms }))),
+    "GAMES AVAILABLE (ONLY CHOOSE FROM THIS):",
+    JSON.stringify(items.map(i => ({ id: i.id, slug: i.slug, name: i.name, genres: i.genres }))),
   ]
-    .filter((x) => x)
+    .filter(x => x)
     .join("\n");
 
   const mistralRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
@@ -307,7 +299,7 @@ export default async (request: Request) => {
     },
     body: JSON.stringify({
       model: MISTRAL_MODEL,
-      temperature: 0.6,
+      temperature: 0.5,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -318,7 +310,7 @@ export default async (request: Request) => {
   if (!mistralRes.ok) {
     const text = await mistralRes.text();
     return jsonResponse(
-      { error: "mistral failed", status: mistralRes.status, details: text.slice(0, 200) },
+      { error: "mistral failed", status: mistralRes.status },
       500,
       corsHeaders
     );
@@ -345,19 +337,16 @@ export default async (request: Request) => {
       };
     });
 
-    const personalMessage = parsed.value?.personal_message ?? null;
-
     response = {
       query,
       recommendations: recs,
-      follow_up_question: parsed.value?.follow_up_question ?? null,
-      personal_message: personalMessage,
+      personal_message: parsed.value?.personal_message ?? null,
       has_community_context: hasCommunitContext,
     };
   } else {
     response = {
       query,
-      answer: raw || "Je n'ai pas compris la question.",
+      answer: raw,
       has_community_context: hasCommunitContext,
     };
   }

@@ -50,36 +50,52 @@ export default function AssistantPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
+  // Load conversations on mount and when user changes
   useEffect(() => {
-    document.title = 'Assistant IA Gaming - Factiony';
-    if (user?.id) loadConversations();
+    if (user?.id) {
+      loadConversations();
+    }
   }, [user?.id]);
 
   async function loadConversations() {
-    if (!user?.id) return;
+    if (!user?.id) {
+      setConversations([]);
+      return;
+    }
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('ai_conversations')
         .select('user_id, session_id, last_query, updated_at')
         .eq('user_id', user.id)
         .order('updated_at', { ascending: false })
         .limit(10);
 
-      setConversations(data ?? []);
+      if (error) {
+        console.error('Error loading conversations:', error);
+        setConversations([]);
+      } else {
+        setConversations(data ?? []);
+      }
     } catch (e) {
       console.error('Load conversations error:', e);
+      setConversations([]);
     }
   }
 
   async function loadConversation(sessionId: string) {
     if (!user?.id) return;
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('ai_conversations')
         .select('messages')
         .eq('user_id', user.id)
         .eq('session_id', sessionId)
         .single();
+
+      if (error) {
+        console.error('Error loading conversation:', error);
+        return;
+      }
 
       if (data?.messages) {
         setMessages(JSON.parse(data.messages));
@@ -89,16 +105,21 @@ export default function AssistantPage() {
     }
   }
 
-  async function deleteConversation(sessionId: string) {
+  async function deleteConversation(sessionId: string, e: React.MouseEvent) {
+    e.stopPropagation();
     if (!user?.id) return;
     try {
-      await supabase
+      const { error } = await supabase
         .from('ai_conversations')
         .delete()
         .eq('user_id', user.id)
         .eq('session_id', sessionId);
 
-      loadConversations();
+      if (error) {
+        console.error('Error deleting conversation:', error);
+      } else {
+        loadConversations();
+      }
     } catch (e) {
       console.error('Delete conversation error:', e);
     }
@@ -166,12 +187,13 @@ export default function AssistantPage() {
 
       if (user?.id) {
         try {
+          const newMessages = [...messages, { role: 'user' as Role, content: finalQuery }];
           await supabase
             .from('ai_conversations')
             .upsert({
               user_id: user.id,
               session_id: sessionId,
-              messages: JSON.stringify([...messages, { role: 'user', content: finalQuery }]),
+              messages: JSON.stringify(newMessages),
               last_query: finalQuery,
             });
 
@@ -190,6 +212,8 @@ export default function AssistantPage() {
       setLoading(false);
     }
   }
+
+  document.title = 'Assistant IA Gaming - Factiony';
 
   return (
     <div className="flex h-screen bg-gray-900">
@@ -214,20 +238,16 @@ export default function AssistantPage() {
               conversations.map((conv) => (
                 <div
                   key={conv.session_id}
-                  className="group bg-gray-700 hover:bg-gray-600 rounded-lg p-3 cursor-pointer transition text-left"
+                  onClick={() => loadConversation(conv.session_id)}
+                  className="group relative bg-gray-700 hover:bg-gray-600 rounded-lg p-3 cursor-pointer transition text-left"
                 >
+                  <p className="text-xs font-medium text-white truncate">{conv.last_query}</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    {new Date(conv.updated_at).toLocaleDateString('fr-FR')}
+                  </p>
                   <button
-                    onClick={() => loadConversation(conv.session_id)}
-                    className="w-full text-left"
-                  >
-                    <p className="text-xs font-medium text-white truncate">{conv.last_query}</p>
-                    <p className="text-xs text-gray-400 mt-1">
-                      {new Date(conv.updated_at).toLocaleDateString('fr-FR')}
-                    </p>
-                  </button>
-                  <button
-                    onClick={() => deleteConversation(conv.session_id)}
-                    className="opacity-0 group-hover:opacity-100 absolute right-2 top-2 text-gray-400 hover:text-red-500 transition"
+                    onClick={(e) => deleteConversation(conv.session_id, e)}
+                    className="opacity-0 group-hover:opacity-100 absolute right-2 top-3 text-gray-400 hover:text-red-500 transition"
                   >
                     <Trash2 size={14} />
                   </button>
@@ -250,7 +270,7 @@ export default function AssistantPage() {
             {user && (
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="text-gray-400 hover:text-white transition"
+                className="text-gray-400 hover:text-white transition px-4"
               >
                 {sidebarOpen ? '✕' : '☰'}
               </button>
@@ -289,14 +309,16 @@ export default function AssistantPage() {
                             <div key={idx} className="border-l-2 border-orange-500 pl-3 py-2">
                               <p className="text-gray-100 text-sm mb-1">🎮 <span className="font-semibold">{r.title}</span></p>
                               <p className="text-gray-400 text-xs mb-2">{r.why}</p>
-                              <a 
-                                href={r.url || '#'} 
-                                target='_blank' 
-                                rel='noopener noreferrer' 
-                                className='text-orange-400 hover:text-orange-300 text-xs underline'
-                              >
-                                Pour en savoir plus sur {r.title}
-                              </a>
+                              {r.url && (
+                                <a 
+                                  href={r.url}
+                                  target='_blank' 
+                                  rel='noopener noreferrer' 
+                                  className='text-orange-400 hover:text-orange-300 text-xs underline block'
+                                >
+                                  Pour en savoir plus sur {r.title}
+                                </a>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -307,7 +329,12 @@ export default function AssistantPage() {
               ))}
 
               {loading && (
-                <div className="text-gray-400 text-sm">⏳ Factiony réfléchit…</div>
+                <div className="mb-4 flex justify-start">
+                  <div className="flex items-center gap-2 text-gray-400 text-sm">
+                    <div className="animate-spin">⏳</div>
+                    <span>Factiony réfléchit…</span>
+                  </div>
+                </div>
               )}
               <div ref={bottomRef} />
             </div>
