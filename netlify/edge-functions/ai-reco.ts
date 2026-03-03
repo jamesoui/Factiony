@@ -137,20 +137,18 @@ export default async (request: Request) => {
     }
   }
 
-  // ---- STEP 2: Keyword search sur comments + forum (community context) ----
+  // ---- STEP 2: Keyword search sur comments + forum ----
   let communityContext: string[] = [];
   let hasCommunitContext = false;
 
   if (userContext.userId) {
     try {
-      // Chercher des comments pertinents
       const { data: comments } = await supabase
         .from("review_comments")
         .select("content,created_at")
         .ilike("content", `%${query.slice(0, 30)}%`)
         .limit(3);
 
-      // Chercher des forum posts pertinents
       const { data: posts } = await supabase
         .from("forum_posts")
         .select("content,created_at")
@@ -178,7 +176,7 @@ export default async (request: Request) => {
     }
   }
 
-  // ---- STEP 3: Fetch candidates (vector first, fallback keyword) ----
+  // ---- STEP 3: Fetch candidates ----
   let candidatesRes: Response | null = null;
   let candidatesMode: "vector" | "keyword" | "none" = "none";
 
@@ -263,13 +261,16 @@ export default async (request: Request) => {
     "2. Répondre à des questions gaming (boss, builds, strats, tips)",
     "3. Donner des conseils basés sur le profil utilisateur",
     "",
-    "Pour les recos : réponds en JSON avec recommendations et why.",
+    "Pour les recos : réponds en JSON avec recommendations, why, et si applicable personal_message.",
     "Pour les autres questions : réponds en texte naturel.",
     "",
-    'JSON format EXACT si c\'est des recos: {"recommendations":[{"slug":"...","title":"...","why":"..."}],"follow_up_question":"..."}',
+    'JSON format EXACT si c\'est des recos: {"recommendations":[{"slug":"...","title":"...","why":"...",id":"..."}],"personal_message":"...","follow_up_question":"..."}',
     "Sinon, réponds directement en texte.",
     "",
     "Sois concis, pratique, utilise le contexte utilisateur.",
+    "Si tu recommandes des jeux (recos), génère un champ 'personal_message' qui répond intelligemment à la demande initiale.",
+    "Exemple: si l'utilisateur demande 'un jeu coop avec ma copine', le message parle de copine. Si juste 'un jeu solo', pas de mention de copine.",
+    "Le message doit être court (1 phrase max) et naturel.",
   ].join("\n");
 
   const userContextStr = userContext.userId
@@ -324,28 +325,34 @@ export default async (request: Request) => {
   const mistralJson = await mistralRes.json();
   const raw = mistralJson?.choices?.[0]?.message?.content ?? "";
 
-  // Essaye de parser comme JSON (recos)
   const parsed = safeParseJson(raw);
 
   let response: any;
 
   if (parsed.ok && parsed.value?.recommendations) {
-    // C'est une réco
-    const recs = (parsed.value.recommendations ?? []).slice(0, 3).map((r: any) => ({
-      slug: r?.slug ?? null,
-      title: r?.title ?? null,
-      why: r?.why ?? null,
-      url: r?.slug ? `${BASE_URL}/game/${r.slug}` : null,
-    }));
+    const recs = (parsed.value.recommendations ?? []).slice(0, 3).map((r: any) => {
+      const slug = r?.slug ?? null;
+      const gameId = r?.id ?? null;
+      const url = slug && gameId ? `${BASE_URL}/game/${slug}-${gameId}` : null;
+
+      return {
+        slug,
+        title: r?.title ?? null,
+        why: r?.why ?? null,
+        url,
+      };
+    });
+
+    const personalMessage = parsed.value?.personal_message ?? null;
 
     response = {
       query,
       recommendations: recs,
       follow_up_question: parsed.value?.follow_up_question ?? null,
+      personal_message: personalMessage,
       has_community_context: hasCommunitContext,
     };
   } else {
-    // C'est une réponse texte (gameplay, tips, etc)
     response = {
       query,
       answer: raw || "Je n'ai pas compris la question.",

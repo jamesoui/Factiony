@@ -15,12 +15,8 @@ type AiRecoResponse = {
   follow_up_question?: string;
   answer?: string;
   has_community_context?: boolean;
+  personal_message?: string;
 };
-
-const FOLLOW_UP_MESSAGE = (count: number) => 
-  count > 0 
-    ? '\n\n📱 Est-ce que l\'un de ces jeux te correspond (ou correspond à ta copine) ? Dis-moi et je peux mettre à jour si tu veux d\'autres recos !'
-    : '';
 
 export default function AssistantPage() {
   const { user } = useAuth();
@@ -70,7 +66,9 @@ export default function AssistantPage() {
         body: JSON.stringify({ query: finalQuery }),
       });
 
-      if (!res.ok) throw new Error(`API error ${res.status}`);
+      if (!res.ok) {
+        throw new Error(`API error ${res.status}`);
+      }
 
       const data: AiRecoResponse = await res.json();
       let hasAddedRecos = false;
@@ -94,9 +92,9 @@ export default function AssistantPage() {
         setMessages((prev) => [...prev, { role: 'assistant', content: lines.join('\n') }]);
       }
 
-      // Ajoute le follow-up perso si recos
-      if (hasAddedRecos && data.recommendations?.length) {
-        const followUp = FOLLOW_UP_MESSAGE(data.recommendations.length);
+      // Ajoute le message perso SEULEMENT si recos et message perso existe
+      if (hasAddedRecos && data.recommendations?.length && data.personal_message) {
+        const followUp = `\n\n📱 ${data.personal_message}`;
         setMessages((prev) => [...prev, { role: 'assistant', content: followUp }]);
       }
 
@@ -110,13 +108,15 @@ export default function AssistantPage() {
             messages: JSON.stringify([...messages, { role: 'user', content: finalQuery }]),
             last_query: finalQuery,
           })
-          .catch(() => {});
+          .catch((err) => console.error('Save error:', err));
       }
-
-      setLoading(false);
     } catch (e: any) {
-      setMessages((prev) => [...prev, { role: 'assistant', content: 'Désolé, j\'ai eu une erreur. Réessaie.' }]);
-      console.error(e);
+      console.error('Error:', e);
+      setMessages((prev) => [...prev, { 
+        role: 'assistant', 
+        content: 'Désolé, j\'ai eu une erreur technique. Réessaie dans un instant.' 
+      }]);
+    } finally {
       setLoading(false);
     }
   }
