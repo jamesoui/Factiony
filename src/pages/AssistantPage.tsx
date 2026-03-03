@@ -100,16 +100,19 @@ export default function AssistantPage() {
 
       // Sauvegarde conversation
       if (user?.id) {
-        await supabase
-          .from('ai_conversations')
-          .upsert({
-            user_id: user.id,
-            session_id: sessionId,
-            messages: JSON.stringify([...messages, { role: 'user', content: finalQuery }]),
-            last_query: finalQuery,
-          })
-          .catch((err) => console.error('Save error:', err));
-      }
+  try {
+    await supabase
+      .from('ai_conversations')
+      .upsert({
+        user_id: user.id,
+        session_id: sessionId,
+        messages: JSON.stringify([...messages, { role: 'user', content: finalQuery }]),
+        last_query: finalQuery,
+      });
+  } catch (saveErr) {
+    console.error('Save error:', saveErr);
+  }
+}
     } catch (e: any) {
       console.error('Error:', e);
       setMessages((prev) => [...prev, { 
