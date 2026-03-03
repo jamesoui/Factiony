@@ -1,5 +1,3 @@
-// netlify/edge-functions/ai-reco.ts
-
 import { createClient } from "@supabase/supabase-js";
 
 type Candidate = {
@@ -66,8 +64,7 @@ export default async (request: Request) => {
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
   const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
-  const MISTRAL_API_KEY = Deno.env.get("MISTRAL_API_KEY");
-  const MISTRAL_MODEL = Deno.env.get("MISTRAL_MODEL") ?? "mistral-large-latest";
+  const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
   const SEARCH_FN_URL = Deno.env.get("SUPABASE_SEARCH_FN_URL");
   const VECTOR_SEARCH_FN_URL = Deno.env.get("SUPABASE_VECTOR_SEARCH_FN_URL");
   const BASE_URL = Deno.env.get("FACTIONY_BASE_URL") ?? "https://factiony.com";
@@ -75,8 +72,8 @@ export default async (request: Request) => {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     return jsonResponse({ error: "Missing SUPABASE_URL or SUPABASE_ANON_KEY" }, 500, corsHeaders);
   }
-  if (!MISTRAL_API_KEY) {
-    return jsonResponse({ error: "Missing MISTRAL_API_KEY" }, 500, corsHeaders);
+  if (!ANTHROPIC_API_KEY) {
+    return jsonResponse({ error: "Missing ANTHROPIC_API_KEY" }, 500, corsHeaders);
   }
   if (!SEARCH_FN_URL && !VECTOR_SEARCH_FN_URL) {
     return jsonResponse(
@@ -173,7 +170,6 @@ export default async (request: Request) => {
   }
 
   let candidatesRes: Response | null = null;
-  let candidatesMode: "vector" | "keyword" | "none" = "none";
 
   if (VECTOR_SEARCH_FN_URL) {
     const u = new URL(VECTOR_SEARCH_FN_URL);
@@ -185,9 +181,7 @@ export default async (request: Request) => {
       headers: { "content-type": "application/json" },
     });
 
-    if (candidatesRes.ok) {
-      candidatesMode = "vector";
-    } else {
+    if (!candidatesRes.ok) {
       candidatesRes = null;
     }
   }
@@ -201,10 +195,6 @@ export default async (request: Request) => {
       method: "GET",
       headers: { "content-type": "application/json" },
     });
-
-    if (candidatesRes.ok) {
-      candidatesMode = "keyword";
-    }
   }
 
   if (!candidatesRes || !candidatesRes.ok) {
@@ -247,77 +237,74 @@ export default async (request: Request) => {
     );
   }
 
-  const systemPrompt = [
-    "ROLE: Tu es Factiony AI, l'assistant gaming officiel strictement.",
-    "",
-    "RULES ABSOLUES:",
-    "1. JAMAIS recommander de jeux HORS de la liste fournie.",
-    "2. JAMAIS mentionner YouTube, vidéos, BD, mangas, films, comics.",
-    "3. SI la demande ne correspond à AUCUN jeu de la liste → réponds 'Je n\'ai pas de match dans ma base'.",
-    "4. IGNORE les questions sur films/séries/vidéos/BDs complètement.",
-    "",
-    "RÉPONSES VALIDES:",
-    "TYPE 1: Recos de jeux",
-    '  JSON: {"recommendations":[{"slug":"...","title":"...","why":"...","id":"..."}],"personal_message":"..."}',
-    "",
-    "TYPE 2: Questions gaming",
-    "  Texte: Explique la mécanique, le build, le boss, la stratégie.",
-    "",
-    "QUALITÉ CRITÈRES:",
-    "- 'why': 1 phrase max, explique POURQUOI ce jeu.",
-    "- 'personal_message': Réponds à la demande spécifique (coop, solo, plateforme).",
-    "- Toujours inclure 'id' et 'slug' pour les recos.",
-  ].join("\n");
+  const systemPrompt = `Tu es Factiony AI, l'assistant gaming officiel de Factiony.
+
+RÈGLES STRICTES (NON NÉGOCIABLES):
+1. RECOMMANDE UNIQUEMENT les jeux de la liste fournie.
+2. JAMAIS mentionner: YouTube, vidéos, BD, mangas, films, comics, séries.
+3. Si la demande ne match aucun jeu → réponds "Je n'ai pas de match dans ma base".
+4. IGNORE complètement les questions sur films/vidéos/BDs.
+
+RÉPONSES VALIDES:
+- Recos: JSON {"recommendations":[{"slug":"...","title":"...","why":"...","id":"..."}],"personal_message":"..."}
+- Questions gaming: Texte naturel (boss, builds, strats, tips).
+
+QUALITÉ:
+- "why": 1 phrase max, explique POURQUOI ce jeu convient.
+- "personal_message": Réponds précisément à la demande (coop/solo, plateforme, difficulté).
+- TOUJOURS inclure "id" et "slug" complets pour chaque reco.`;
 
   const userContextStr = userContext.userId
     ? [
-        "USER PROFILE:",
-        `Games: ${userContext.recent_ratings.slice(0, 5).map((r) => r.game_slug).join(", ")}`,
+        "PROFIL UTILISATEUR:",
+        `Jeux aimés: ${userContext.recent_ratings.slice(0, 5).map((r) => r.game_slug).join(", ")}`,
         `Wishlist: ${userContext.recent_wishlist.slice(0, 5).map((w) => w.game_name).join(", ")}`,
       ].join("\n")
-    : "USER PROFILE: Anonymous";
+    : "PROFIL: Utilisateur anonyme";
 
-  const communityStr = communityContext.length > 0 ? ["COMMUNITY:", ...communityContext].join("\n") : "";
+  const communityStr = communityContext.length > 0 ? ["RETOURS COMMUNAUTÉ:", ...communityContext].join("\n") : "";
 
   const userPrompt = [
     userContextStr,
     communityStr,
     "",
-    `REQUEST: "${query}"`,
+    `DEMANDE UTILISATEUR: "${query}"`,
     "",
-    "GAMES AVAILABLE (ONLY CHOOSE FROM THIS):",
-    JSON.stringify(items.map(i => ({ id: i.id, slug: i.slug, name: i.name, genres: i.genres }))),
+    "JEUX DISPONIBLES (CHOISIR UNIQUEMENT PARMI CEUX-CI):",
+    JSON.stringify(items.map(i => ({ id: i.id, slug: i.slug, name: i.name, genres: i.genres, platforms: i.platforms }))),
   ]
     .filter(x => x)
     .join("\n");
 
-  const mistralRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
+  const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${MISTRAL_API_KEY}`,
+      "x-api-key": ANTHROPIC_API_KEY,
       "Content-Type": "application/json",
+      "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: MISTRAL_MODEL,
-      temperature: 0.5,
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1024,
+      system: systemPrompt,
       messages: [
-        { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
     }),
   });
 
-  if (!mistralRes.ok) {
-    const text = await mistralRes.text();
+  if (!claudeRes.ok) {
+    const text = await claudeRes.text();
+    console.error("Claude API error:", text);
     return jsonResponse(
-      { error: "mistral failed", status: mistralRes.status },
+      { error: "claude failed", status: claudeRes.status },
       500,
       corsHeaders
     );
   }
 
-  const mistralJson = await mistralRes.json();
-  const raw = mistralJson?.choices?.[0]?.message?.content ?? "";
+  const claudeJson = await claudeRes.json();
+  const raw = claudeJson?.content?.[0]?.text ?? "";
 
   const parsed = safeParseJson(raw);
 
