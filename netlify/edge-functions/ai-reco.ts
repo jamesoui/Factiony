@@ -136,70 +136,38 @@ export default async (request: Request) => {
   let communityContext: string[] = [];
   let hasCommunitContext = false;
 
-  let communityContext: string[] = [];
-let hasCommunitContext = false;
+  try {
+    const { data: gameComments } = await supabase
+      .from("game_comments")
+      .select("content, rating")
+      .limit(5);
 
-try {
-  // Cherche dans game_comments (avis RAWG seeded)
-  const { data: gameComments } = await supabase
-    .from("game_comments")
-    .select("content, rating")
-    .limit(5);
+    const { data: reviewComments } = await supabase
+      .from("review_comments")
+      .select("content")
+      .ilike("content", `%${query.slice(0, 30)}%`)
+      .limit(3);
 
-  // Cherche aussi dans review_comments (avis Factiony)
-  const { data: reviewComments } = await supabase
-    .from("review_comments")
-    .select("content")
-    .ilike("content", `%${query.slice(0, 30)}%`)
-    .limit(3);
-
-  if ((gameComments?.length ?? 0) > 0 || (reviewComments?.length ?? 0) > 0) {
-    communityContext = [];
-    
-    if (gameComments && gameComments.length > 0) {
-      communityContext.push("Avis RAWG:");
-      gameComments.slice(0, 3).forEach((c: any) => {
-        communityContext.push(`- "${c.content.slice(0, 60)}..." (⭐${c.rating})`);
-      });
-    }
-    
-    if (reviewComments && reviewComments.length > 0) {
-      communityContext.push("Avis Factiony:");
-      reviewComments.forEach((c: any) => {
-        communityContext.push(`- "${c.content.slice(0, 60)}..."`);
-      });
-    }
-    hasCommunitContext = true;
-  }
-} catch (e) {
-  console.error("Community search error:", e);
-}
-
-      const { data: posts } = await supabase
-        .from("forum_posts")
-        .select("content")
-        .ilike("content", `%${query.slice(0, 30)}%`)
-        .limit(2);
-
-      if ((comments?.length ?? 0) > 0 || (posts?.length ?? 0) > 0) {
-        communityContext = [];
-        if (comments && comments.length > 0) {
-          communityContext.push("Retours communauté:");
-          comments.slice(0, 2).forEach((c: any) => {
-            communityContext.push(`- "${c.content.slice(0, 60)}..."`);
-          });
-        }
-        if (posts && posts.length > 0) {
-          communityContext.push("Tips forum:");
-          posts.slice(0, 2).forEach((p: any) => {
-            communityContext.push(`- "${p.content.slice(0, 60)}..."`);
-          });
-        }
-        hasCommunitContext = true;
+    if ((gameComments?.length ?? 0) > 0 || (reviewComments?.length ?? 0) > 0) {
+      communityContext = [];
+      
+      if (gameComments && gameComments.length > 0) {
+        communityContext.push("Avis RAWG:");
+        gameComments.slice(0, 3).forEach((c: any) => {
+          communityContext.push(`- "${c.content.slice(0, 60)}..." (⭐${c.rating})`);
+        });
       }
-    } catch (e) {
-      console.error("Community search error:", e);
+      
+      if (reviewComments && reviewComments.length > 0) {
+        communityContext.push("Avis Factiony:");
+        reviewComments.forEach((c: any) => {
+          communityContext.push(`- "${c.content.slice(0, 60)}..."`);
+        });
+      }
+      hasCommunitContext = true;
     }
+  } catch (e) {
+    console.error("Community search error:", e);
   }
 
   let candidatesRes: Response | null = null;
