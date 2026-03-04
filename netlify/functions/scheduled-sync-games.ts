@@ -1,5 +1,3 @@
-// netlify/functions/scheduled-sync-games.ts
-
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -15,8 +13,10 @@ export default async () => {
 
     // Calcule quel batch syncer aujourd'hui (rotation)
     const today = new Date();
-    const dayOfYear = Math.floor((today.getTime() - new Date(today.getFullYear(), 0, 0).getTime()) / 86400000);
-    const batchNumber = dayOfYear % 100; // 0-99 (100 jours de rotation)
+    const dayOfYear = Math.floor(
+      (today.getTime() - new Date(today.getFullYear(), 0, 0).getTime()) / 86400000
+    );
+    const batchNumber = dayOfYear % 100;
     const offset = batchNumber * 100;
 
     console.log(`[SYNC] Batch ${batchNumber}, offset ${offset}`);
@@ -26,12 +26,16 @@ export default async () => {
       .from("games")
       .select("id, slug, name")
       .order("id")
-      .range(offset, offset + 99); // 100 jeux par jour
+      .range(offset, offset + 99);
 
     if (fetchError || !gamesToSync || gamesToSync.length === 0) {
       console.log("[SYNC] No games to sync in this batch");
       return new Response(
-        JSON.stringify({ success: true, updated: 0, message: "No games in batch" }),
+        JSON.stringify({
+          success: true,
+          updated: 0,
+          message: "No games in batch"
+        }),
         { status: 200 }
       );
     }
@@ -41,7 +45,7 @@ export default async () => {
 
     for (const game of gamesToSync) {
       try {
-        // Rate limit: 100ms entre requêtes
+        // Rate limit: 100ms entre requetes
         await new Promise((resolve) => setTimeout(resolve, 100));
 
         // Fetch depuis RAWG
@@ -50,7 +54,9 @@ export default async () => {
         );
 
         if (!rawgRes.ok) {
-          console.warn(`[SYNC] RAWG error for game ${game.id}: ${rawgRes.status}`);
+          console.warn(
+            `[SYNC] RAWG error for game ${game.id}: ${rawgRes.status}`
+          );
           failed++;
           continue;
         }
@@ -64,13 +70,14 @@ export default async () => {
             slug: rawgData.slug || game.slug,
             name: rawgData.name || game.name,
             released: rawgData.released,
-            description_raw: rawgData.description || rawgData.description_raw,
+            description_raw:
+              rawgData.description || rawgData.description_raw,
             genres: rawgData.genres || [],
             platforms: rawgData.platforms || [],
             tags: rawgData.tags || [],
             metacritic: rawgData.metacritic,
             playtime: rawgData.playtime,
-            updated_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
           })
           .eq("id", game.id);
 
@@ -87,7 +94,9 @@ export default async () => {
       }
     }
 
-    console.log(`[SYNC] Batch ${batchNumber} complete. Updated: ${updated}, Failed: ${failed}`);
+    console.log(
+      `[SYNC] Batch ${batchNumber} complete. Updated: ${updated}, Failed: ${failed}`
+    );
 
     return new Response(
       JSON.stringify({
@@ -102,31 +111,14 @@ export default async () => {
   } catch (error) {
     console.error("[SYNC] Error:", error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({
+        error: error instanceof Error ? error.message : "Unknown error"
+      }),
       { status: 500 }
     );
   }
 };
 
 export const config = {
-  schedule: "0 2 * * *", // Chaque jour à 2am
+  schedule: "0 2 * * *"
 };
-```
-
----
-
-## 🔄 **Ce que ça change:**
-```
-AVANT:
-  - Synce 100 jeux modifiés sur RAWG
-  - Les autres restent statiques
-  - ❌ 10k jeux jamais tous à jour
-
-APRÈS:
-  - Jour 1: Synce jeux 0-99
-  - Jour 2: Synce jeux 100-199
-  - ...
-  - Jour 100: Synce jeux 9900-9999
-  - Jour 101: Restart (jeux 0-99)
-  
-  ✅ Après 100 jours, tous les jeux sont sync!
