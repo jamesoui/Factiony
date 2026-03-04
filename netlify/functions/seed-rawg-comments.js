@@ -16,41 +16,42 @@ exports.handler = async (event) => {
   const RAWG_API_KEY = process.env.RAWG_API_KEY;
 
   try {
-    console.log("Fetching popular games from RAWG...");
+    console.log("Starting seed...");
     
     const gamesRes = await fetch(
-      `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&ordering=-rating&limit=100`
+      `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&ordering=-rating&limit=10`
     );
     const gamesData = await gamesRes.json();
+    
+    console.log("Games fetched:", gamesData.results?.length);
 
     let commentsAdded = 0;
+    let errors = [];
 
     for (const game of gamesData.results || []) {
-      console.log(`Processing ${game.name}...`);
+      console.log(`[${game.name}] Processing...`);
       
-      // Créer un commentaire système basé sur la description du jeu
-      if (game.description_raw || game.description) {
-        const gameDesc = game.description_raw || game.description;
-        const sentences = gameDesc.split('. ').slice(0, 2).join('. ');
-        
-        const { error } = await supabase
-          .from('review_comments')
-          .insert({
-            game_id: game.id.toString(),
-            user_id: null,
-            content: sentences.substring(0, 500) || `${game.name} - Jeu populaire`,
-            rating: Math.round(game.rating),
-            created_at: game.updated || new Date().toISOString(),
-          })
-          .select();
+      const content = game.description_raw || game.description || `${game.name} is a great game!`;
+      
+      const { data, error } = await supabase
+        .from('review_comments')
+        .insert({
+          game_id: game.id.toString(),
+          user_id: null,
+          content: content.substring(0, 500),
+          rating: Math.round(game.rating || 5),
+          created_at: new Date().toISOString(),
+        })
+        .select();
 
-        if (!error) {
-          commentsAdded++;
-          console.log(`Added comment for ${game.name}`);
-        }
+      if (error) {
+        console.log(`[${game.name}] ERROR:`, error);
+        errors.push({ game: game.name, error: error.message });
+      } else {
+        commentsAdded++;
+        console.log(`[${game.name}] SUCCESS`);
       }
 
-      // Éviter de surcharger l'API RAWG
       await new Promise(resolve => setTimeout(resolve, 50));
     }
 
@@ -59,13 +60,14 @@ exports.handler = async (event) => {
       body: JSON.stringify({
         success: true,
         message: `Seeded ${commentsAdded} comments from RAWG`,
+        errors: errors,
       }),
     };
   } catch (error) {
     console.error('Seed error:', error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: error.message }),
+      body: JSON.stringify({ error: error.message, stack: error.stack }),
     };
   }
 };
