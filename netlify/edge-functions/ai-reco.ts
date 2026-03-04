@@ -226,6 +226,10 @@ export default async (request: Request) => {
     }))
     .filter((x: Candidate) => x.slug && x.name && !x.name.toUpperCase().includes("VIDEO"));
 
+    console.log("Query:", query);
+console.log("Candidates found:", items.length);
+console.log("First 5 candidates:", items.slice(0, 5).map(i => i.name));
+
   if (items.length === 0) {
     return jsonResponse(
       {
