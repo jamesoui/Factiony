@@ -2,12 +2,6 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-type UserContext = {
-  userId: string | null;
-  recent_ratings: Array<{ game_id: string; game_slug: string; rating: number }>;
-  recent_wishlist: Array<{ game_id: string; game_name: string }>;
-};
-
 function jsonResponse(body: any, status = 200, corsHeaders: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
     status,
@@ -60,14 +54,14 @@ export default async (request: Request) => {
   const BASE_URL = Deno.env.get("FACTIONY_BASE_URL") ?? "https://factiony.com";
 
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !MISTRAL_API_KEY) {
-    return jsonResponse({ error: "Missing environment variables" }, 500, corsHeaders);
+    return jsonResponse({ error: "Missing env vars" }, 500, corsHeaders);
   }
 
   let body: any;
   try {
     body = await request.json();
   } catch {
-    return jsonResponse({ error: "Invalid JSON body" }, 400, corsHeaders);
+    return jsonResponse({ error: "Invalid JSON" }, 400, corsHeaders);
   }
 
   const query = (body?.query ?? "").toString().trim();
@@ -76,45 +70,13 @@ export default async (request: Request) => {
   }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const token = getBearerToken(request);
-  let userContext: UserContext = { userId: null, recent_ratings: [], recent_wishlist: [] };
 
-  // Get user context
-  if (token) {
-    try {
-      const { data, error } = await supabase.auth.getUser(token);
-      if (!error && data?.user?.id) {
-        const userId = data.user.id;
-        userContext.userId = userId;
-
-        const { data: ratings } = await supabase
-          .from("game_ratings")
-          .select("game_id,game_slug,rating")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false })
-          .limit(20);
-
-        const { data: wishlist } = await supabase
-          .from("game_follows")
-          .select("game_id,game_name")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false })
-          .limit(20);
-
-        userContext.recent_ratings = ratings ?? [];
-        userContext.recent_wishlist = wishlist ?? [];
-      }
-    } catch (e) {
-      console.error("Auth error:", e);
-    }
-  }
-
-  // STEP 1: Call search-games (same as SearchView)
+  // STEP 1: Search games (like SearchView does)
   let candidatesJson: any = null;
   try {
     const searchUrl = new URL(`${SUPABASE_URL}/functions/v1/search-games`);
     searchUrl.searchParams.set("query", query);
-    searchUrl.searchParams.set("page_size", "30");
+    searchUrl.searchParams.set("page_size", "20");
 
     const searchRes = await fetch(searchUrl.toString(), {
       headers: {
@@ -130,144 +92,7 @@ export default async (request: Request) => {
     console.error("Search error:", e);
   }
 
-  if (!candidatesJson || !candidatesJson.results || candidatesJson.results.length === 0) {
-    return jsonResponse(
-      {
-        query,
-        recommendations: [],
-        answer: "Je n'ai pas trouvé de jeux correspondant à ta demande. Reformule ou précise.",
-      },
-      200,
-      corsHeaders
-    );
-  }
-
-  const rawGames = candidatesJson.results;
-
-  // STEP 2: Fetch enrichment data from Factiony
-  let gameSignalsMap: Record<string, any> = {};
-  let gameCommentsMap: Record<string, any[]> = {};
-  let forumThreadsMap: Record<string, any[]> = {};
-
-  try {
-    const { data: gameSignals } = await supabase
-      .from("game_signals")
-      .select("game_id, avg_rating, ratings_count, follows_count");
-    if (gameSignals) {
-      gameSignals.forEach((gs: any) => {
-        gameSignalsMap[gs.game_id] = gs;
-      });
-    }
-
-    const { data: gameComments } = await supabase
-      .from("game_comments")
-      .select("game_id, content, rating")
-      .limit(100);
-    if (gameComments) {
-      gameComments.forEach((gc: any) => {
-        if (!gameCommentsMap[gc.game_id]) gameCommentsMap[gc.game_id] = [];
-        gameCommentsMap[gc.game_id].push(gc);
-      });
-    }
-
-    const { data: forumThreads } = await supabase
-      .from("forum_threads")
-      .select("game_id, title, reply_count")
-      .limit(100);
-    if (forumThreads) {
-      forumThreads.forEach((ft: any) => {
-        if (!forumThreadsMap[ft.game_id]) forumThreadsMap[ft.game_id] = [];
-        forumThreadsMap[ft.game_id].push(ft);
-      });
-    }
-  } catch (e) {
-    console.error("Error fetching enrichment data:", e);
-  }
-
-  // STEP 3: Score each game intelligently
-  const queryLower = query.toLowerCase();
-
-  const scoredGames = rawGames.map((game: any) => {
-    let score = 0;
-    const gameId = game.id?.toString() ?? "";
-
-    // 1. Title match (40 points)
-    if (game.name?.toLowerCase().includes(queryLower)) score += 40;
-    if (game.slug?.toLowerCase().includes(queryLower)) score += 20;
-
-    // 2. Genres match (35 points)
-    const genreStr = (game.genres ?? []).map((g: any) => g?.name ?? g).join(" ").toLowerCase();
-    const genreKeywords = ["rpg", "action", "strateg", "indie", "adventure", "puzzle", "shooter", "horror", "soulslike"];
-    genreKeywords.forEach(kw => {
-      if (queryLower.includes(kw) && genreStr.includes(kw)) score += 35;
-    });
-
-    // 3. Tags match (30 points)
-    const tagsStr = (game.tags ?? []).map((t: any) => t?.name ?? t).join(" ").toLowerCase();
-    ["story", "coop", "cooperative", "multiplayer", "narrative", "open-world"].forEach(tag => {
-      if (queryLower.includes(tag) && tagsStr.includes(tag)) score += 30;
-    });
-
-    // 4. Description match (15 points)
-    const descStr = (game.description_raw ?? "").toLowerCase();
-    if (descStr.includes("coop") && queryLower.includes("coop")) score += 15;
-    if (descStr.includes("story") && queryLower.includes("story")) score += 15;
-
-    // 5. Platform match (25 points)
-    const platformStr = (game.platforms ?? []).map((p: any) => p?.platform?.name ?? p).join(" ").toLowerCase();
-    ["ps5", "xbox", "pc", "switch"].forEach(plat => {
-      if (queryLower.includes(plat) && platformStr.includes(plat)) score += 25;
-    });
-
-    // 6. Year match (20 points)
-    if (game.released) {
-      const gameYear = new Date(game.released).getFullYear();
-      const yearMatch = query.match(/\b(202[0-9]|201[0-9])\b/);
-      if (yearMatch && parseInt(yearMatch[0]) === gameYear) score += 20;
-      if (queryLower.includes("recent") && gameYear >= 2024) score += 10;
-    }
-
-    // 7. RAWG Comments match (15 points)
-    const gameComments = gameCommentsMap[gameId] ?? [];
-    gameComments.forEach((gc: any) => {
-      if ((gc.content ?? "").toLowerCase().includes(queryLower)) score += 15;
-      if (gc.rating >= 8) score += 5;
-    });
-
-    // 8. Factiony rating bonus (20 points)
-    const signals = gameSignalsMap[gameId];
-    if (signals && signals.avg_rating >= 4.0) score += 20;
-    if (signals && signals.ratings_count > 10) score += 10;
-
-    // 9. Forum activity (10 points)
-    const forumThreads = forumThreadsMap[gameId] ?? [];
-    if (forumThreads.length > 0) score += 10;
-    forumThreads.forEach((ft: any) => {
-      if ((ft.title ?? "").toLowerCase().includes(queryLower)) score += 5;
-    });
-
-    // 10. Tone hints (15 points)
-    if (queryLower.includes("dark") || queryLower.includes("sombre")) {
-      if (genreStr.includes("horror") || tagsStr.includes("dark")) score += 15;
-    }
-    if (queryLower.includes("casual")) {
-      if (genreStr.includes("indie") || genreStr.includes("puzzle")) score += 15;
-    }
-
-    return { ...game, searchScore: score };
-  });
-
-  // STEP 4: Sort and filter by score
-  const topGames = scoredGames
-    .sort((a, b) => (b.searchScore ?? 0) - (a.searchScore ?? 0))
-    .filter(g => (g.searchScore ?? 0) > 0)
-    .slice(0, 5);
-
-  console.log("Query:", query);
-  console.log("Top games found:", topGames.length);
-  console.log("Top 3:", topGames.slice(0, 3).map(g => `${g.name} (${g.searchScore})`));
-
-  if (topGames.length === 0) {
+  if (!candidatesJson?.results?.length) {
     return jsonResponse(
       {
         query,
@@ -279,109 +104,122 @@ export default async (request: Request) => {
     );
   }
 
-  // STEP 5: Send to Mistral with enriched data
-  const systemPrompt = `Tu es Factiony AI, l'assistant gaming officiel.
+  const rawGames = candidatesJson.results;
+  const queryLower = query.toLowerCase();
 
-RÈGLES:
-1. Recommande UNIQUEMENT les jeux de la liste fournie.
-2. Utilise les infos Factiony (ratings, avis, tags).
-3. Si pas de match, dis pourquoi honnêtement.
-4. JAMAIS inventer d'infos.
-5. JAMAIS mentionner YouTube, vidéos, films, séries.
+  // STEP 2: Quick score (without Supabase enrichment for speed)
+  const scoredGames = rawGames.map((game: any, idx: number) => {
+    let score = idx === 0 ? 100 : 80 - idx * 10; // Rank by search order first
 
-FORMAT RÉPONSE:
-- Recos: JSON {"recommendations":[{"slug":"...","title":"...","why":"...","id":"..."}],"personal_message":"..."}
-- Questions: Texte naturel.
+    // Title match
+    if (game.name?.toLowerCase().includes(queryLower)) score += 20;
+    if (game.slug?.toLowerCase().includes(queryLower)) score += 15;
 
-QUALITÉ:
-- "why": 1 phrase max, précis.
-- "personal_message": Réponds à la demande.`;
+    // Genres match
+    const genreStr = (game.genres ?? []).map((g: any) => g?.name ?? g).join(" ").toLowerCase();
+    if (queryLower.includes("rpg") && genreStr.includes("rpg")) score += 20;
+    if (queryLower.includes("action") && genreStr.includes("action")) score += 20;
+    if (queryLower.includes("indie") && genreStr.includes("indie")) score += 20;
 
-  const userContextStr = userContext.userId
-    ? `Profil: Aimés: ${userContext.recent_ratings.slice(0, 3).map(r => r.game_slug).join(", ")}. Wishlist: ${userContext.recent_wishlist.slice(0, 3).map(w => w.game_name).join(", ")}.`
-    : "Profil: Anonyme.";
+    // Tags match
+    const tagsStr = (game.tags ?? []).map((t: any) => t?.name ?? t).join(" ").toLowerCase();
+    if (queryLower.includes("coop") && tagsStr.includes("coop")) score += 15;
+    if (queryLower.includes("story") && tagsStr.includes("story")) score += 15;
 
-  const gamesData = topGames.slice(0, 3).map(g => {
-    const signals = gameSignalsMap[g.id?.toString() ?? ""];
-    const comments = gameCommentsMap[g.id?.toString() ?? ""] ?? [];
-    const threads = forumThreadsMap[g.id?.toString() ?? ""] ?? [];
+    // Platform match
+    const platformStr = (game.platforms ?? []).map((p: any) => p?.platform?.name ?? p).join(" ").toLowerCase();
+    if (queryLower.includes("ps5") && platformStr.includes("ps5")) score += 15;
+    if (queryLower.includes("pc") && platformStr.includes("pc")) score += 15;
 
-    return {
-      id: g.id,
-      slug: g.slug,
-      name: g.name,
-      released: g.released ? new Date(g.released).toLocaleDateString('fr-FR') : "TBA",
-      genres: (g.genres ?? []).map((x: any) => x?.name ?? x).slice(0, 3).join(", "),
-      platforms: (g.platforms ?? []).map((p: any) => p?.platform?.name ?? p).slice(0, 3).join(", "),
-      tags: (g.tags ?? []).map((t: any) => t?.name ?? t).slice(0, 5).join(", "),
-      metacritic: g.metacritic ?? "N/A",
-      factiony_rating: signals?.avg_rating ? signals.avg_rating.toFixed(1) : "N/A",
-      factiony_ratings_count: signals?.ratings_count ?? 0,
-      community_mentions: comments.length + threads.length,
-      comments_sample: comments.slice(0, 2).map((c: any) => `"${c.content.substring(0, 50)}..."`).join("; "),
-    };
+    return { ...game, searchScore: score };
   });
 
-  const userPrompt = [
-    userContextStr,
-    `DEMANDE: "${query}"`,
-    "JEUX À RECOMMANDER:",
-    JSON.stringify(gamesData, null, 2),
-  ].join("\n");
+  const topGames = scoredGames
+    .sort((a, b) => (b.searchScore ?? 0) - (a.searchScore ?? 0))
+    .slice(0, 3);
 
-  const mistralRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${MISTRAL_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "mistral-large-latest",
-      temperature: 0.6,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    }),
-  });
+  console.log("Query:", query);
+  console.log("Top 3 games:", topGames.map(g => `${g.name} (${g.searchScore})`));
 
-  if (!mistralRes.ok) {
-    const text = await mistralRes.text();
-    console.error("Mistral error:", text);
+  // STEP 3: Simple Mistral call (no Supabase enrichment to save time)
+  const systemPrompt = `Tu es Factiony AI. Recommande les jeux fournis.
+RÈGLES: 1. SEULEMENT les jeux de la liste. 2. Sois bref. 3. Jamais inventer d'infos.
+FORMAT: {"recommendations":[{"slug":"...","title":"...","why":"...","id":"..."}],"personal_message":"..."}`;
+
+  const gamesStr = topGames.map(g => ({
+    id: g.id,
+    slug: g.slug,
+    name: g.name,
+    genres: (g.genres ?? []).map((x: any) => x?.name ?? x).slice(0, 2).join(", "),
+    platforms: (g.platforms ?? []).map((p: any) => p?.platform?.name ?? p).slice(0, 2).join(", "),
+  })).map(g => `${g.name} (${g.genres}, ${g.platforms})`).join("; ");
+
+  const userPrompt = `Demande: "${query}"\nJeux: ${gamesStr}`;
+
+  try {
+    const mistralRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${MISTRAL_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "mistral-large-latest",
+        temperature: 0.5,
+        max_tokens: 300,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+    });
+
+    if (!mistralRes.ok) {
+      throw new Error(`Mistral ${mistralRes.status}`);
+    }
+
+    const mistralJson = await mistralRes.json();
+    const raw = mistralJson?.choices?.[0]?.message?.content ?? "";
+    const parsed = safeParseJson(raw);
+
+    if (parsed.ok && parsed.value?.recommendations) {
+      const recs = (parsed.value.recommendations ?? []).slice(0, 3).map((r: any) => ({
+        slug: r?.slug,
+        title: r?.title,
+        why: r?.why,
+        url: r?.slug && r?.id ? `${BASE_URL}/game/${r.slug}-${r.id}` : null,
+      }));
+
+      return jsonResponse(
+        {
+          query,
+          recommendations: recs,
+          personal_message: parsed.value?.personal_message,
+        },
+        200,
+        corsHeaders
+      );
+    } else {
+      return jsonResponse(
+        {
+          query,
+          answer: raw,
+        },
+        200,
+        corsHeaders
+      );
+    }
+  } catch (e) {
+    console.error("Mistral error:", e);
     return jsonResponse(
-      { error: "mistral failed" },
-      500,
+      {
+        query,
+        answer: `Recommandation basique: ${topGames[0]?.name}. ${topGames[0]?.genres?.join(", ")}`,
+      },
+      200,
       corsHeaders
     );
   }
-
-  const mistralJson = await mistralRes.json();
-  const raw = mistralJson?.choices?.[0]?.message?.content ?? "";
-  const parsed = safeParseJson(raw);
-
-  let response: any;
-
-  if (parsed.ok && parsed.value?.recommendations) {
-    const recs = (parsed.value.recommendations ?? []).slice(0, 3).map((r: any) => ({
-      slug: r?.slug ?? null,
-      title: r?.title ?? null,
-      why: r?.why ?? null,
-      url: r?.slug && r?.id ? `${BASE_URL}/game/${r.slug}-${r.id}` : null,
-    }));
-
-    response = {
-      query,
-      recommendations: recs,
-      personal_message: parsed.value?.personal_message ?? null,
-    };
-  } else {
-    response = {
-      query,
-      answer: raw,
-    };
-  }
-
-  return jsonResponse(response, 200, corsHeaders);
 };
 
 export const config = { path: "/api/ai-reco" };
