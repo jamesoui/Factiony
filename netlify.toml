@@ -4,6 +4,7 @@ command = "npx vite build"
 
 [build.environment]
 SECRETS_SCAN_SMART_DETECTION_OMIT_VALUES = "AIzaSyCnduNWsBXaMbDKgVB9mflpJIdPr7jceI0"
+SECRETS_SCAN_OMIT_KEYS = "RAWG_API_KEY,SEED_SECRET_KEY,SUPABASE_SERVICE_ROLE_KEY"
 
 # IMPORTANT: exclude share/og routes from SPA fallback
 [[redirects]]
