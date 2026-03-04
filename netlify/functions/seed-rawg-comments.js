@@ -19,7 +19,7 @@ exports.handler = async (event) => {
     console.log("Starting seed...");
     
     const gamesRes = await fetch(
-      `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&ordering=-rating&limit=10`
+      `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&ordering=-rating&limit=100`
     );
     const gamesData = await gamesRes.json();
     
@@ -29,15 +29,12 @@ exports.handler = async (event) => {
     let errors = [];
 
     for (const game of gamesData.results || []) {
-      console.log(`[${game.name}] Processing...`);
-      
       const content = game.description_raw || game.description || `${game.name} is a great game!`;
       
-      const { data, error } = await supabase
-        .from('review_comments')
+      const { error } = await supabase
+        .from('game_comments')
         .insert({
           game_id: game.id.toString(),
-          user_id: null,
           content: content.substring(0, 500),
           rating: Math.round(game.rating || 5),
           created_at: new Date().toISOString(),
@@ -67,7 +64,7 @@ exports.handler = async (event) => {
     console.error('Seed error:', error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: error.message, stack: error.stack }),
+      body: JSON.stringify({ error: error.message }),
     };
   }
 };
