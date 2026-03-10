@@ -1206,7 +1206,7 @@ setTempReview(reviewVal);
                           buyLinks={buyLinks}
                           stores={storesList}
                           gameId={game.id}
-                          gameName={game.name || game.title}
+                          gameName={gameName}
                         />
                       </div>
                     </div>
