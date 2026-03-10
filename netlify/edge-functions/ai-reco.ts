@@ -204,7 +204,7 @@ export default async (request: Request) => {
     );
   }
 
-  // STEP 4: Send to Mistral with FULL CONTEXT
+  // STEP 4: Send to Mistral with FULL CONTEXT (40s timeout)
   const systemPrompt = `Tu es Factiony AI, l'assistant gaming de Factiony.
 Tu as accès aux meilleurs jeux et tu dois recommander intelligemment.
 
@@ -257,9 +257,7 @@ Explique pourquoi chaque jeu est parfait pour cette personne.`;
 
   try {
     console.log("[AI-RECO] Starting Mistral request...");
-    console.log("[AI-RECO] Games data size:", JSON.stringify(gamesData).length, "bytes");
     
-    // Timeout: 40 secondes pour Mistral (temps de réflexion)
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       console.log("[AI-RECO] Timeout triggered at 40s");
@@ -296,8 +294,6 @@ Explique pourquoi chaque jeu est parfait pour cette personne.`;
     const mistralJson = await mistralRes.json();
     const raw = mistralJson?.choices?.[0]?.message?.content ?? "";
     
-    console.log("[AI-RECO] Raw Mistral response length:", raw.length);
-    
     const parsed = safeParseJson(raw);
 
     if (parsed.ok && parsed.value?.recommendations?.length) {
@@ -321,9 +317,7 @@ Explique pourquoi chaque jeu est parfait pour cette personne.`;
       );
     } else {
       console.log("[AI-RECO] Parse failed, using fallback");
-      console.log("[AI-RECO] Parse error:", parsed.error);
       
-      // Fallback: Retourner les top jeux avec infos enrichies
       return jsonResponse(
         {
           query,
@@ -342,7 +336,6 @@ Explique pourquoi chaque jeu est parfait pour cette personne.`;
   } catch (e) {
     console.error("[AI-RECO] Fatal error:", String(e));
     
-    // Fallback ultime
     const top = topGames[0];
     return jsonResponse(
       {
