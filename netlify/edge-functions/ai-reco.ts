@@ -204,43 +204,70 @@ export default async (request: Request) => {
     );
   }
 
-  // STEP 4: Send to Mistral with context
+  // STEP 4: Send to Mistral with FULL CONTEXT
   const systemPrompt = `Tu es Factiony AI, l'assistant gaming de Factiony.
+Tu as accès aux meilleurs jeux et tu dois recommander intelligemment.
 
-RÈGLES STRICTES:
+RÈGLES:
 1. Recommande UNIQUEMENT les jeux fournis.
-2. Utilise les infos Factiony (ratings, avis communauté).
-3. Sois précis et utile.
+2. Utilise TOUS les détails (genres, tags, avis communauté, ratings).
+3. Sois précis, utile, passionné.
 4. Jamais inventer d'infos.
-5. JAMAIS mentionner: YouTube, vidéos, films, BD, séries.
+5. Une recommandation = pourquoi c'est PARFAIT pour cette demande.
 
-RÉPONSE FORMAT: {"recommendations":[{"slug":"...","title":"...","why":"...","id":"..."}],"personal_message":"..."}
+FORMAT JSON: {
+  "recommendations": [
+    {"slug":"...","title":"...","why":"...","id":"..."},
+    ...
+  ],
+  "personal_message": "Message personnel..."
+}`;
 
-QUALITÉ: "why" = 1 phrase max expliquant POURQUOI ce jeu convient.`;
-
-  const gamesData = topGames.slice(0, 3).map((g: any) => {
-    const commentsSample = (g.comments ?? []).slice(0, 2).map((c: any) => `"${c.content.substring(0, 60)}..."`).join("; ");
+  const gamesData = topGames.slice(0, 5).map((g: any) => {
+    const commentsSample = (g.comments ?? [])
+      .slice(0, 3)
+      .map((c: any) => `"${c.content.substring(0, 80)}..." (note: ${c.rating})`)
+      .join(" | ");
 
     return {
       id: g.id,
       slug: g.slug,
       name: g.name,
-      genres: (g.genres ?? []).map((x: any) => x?.name ?? x).slice(0, 3).join(", "),
-      platforms: (g.platforms ?? []).map((p: any) => p?.platform?.name ?? p).slice(0, 3).join(", "),
-      tags: (g.tags ?? []).map((t: any) => t?.name ?? t).slice(0, 4).join(", "),
+      genres: (g.genres ?? []).map((x: any) => x?.name ?? x).join(", "),
+      platforms: (g.platforms ?? []).map((p: any) => p?.platform?.name ?? p).join(", "),
+      tags: (g.tags ?? []).map((t: any) => t?.name ?? t).join(", "),
       released: g.released ? new Date(g.released).toLocaleDateString('fr-FR') : "TBA",
-      factiony_rating: g.signals?.avg_rating ? `${g.signals.avg_rating.toFixed(1)}/5 (${g.signals.ratings_count} votes)` : "Pas noté",
-      community: g.comments.length > 0 ? commentsSample : "Aucun avis",
+      description: g.description?.substring(0, 150) + "..." || "N/A",
+      factiony_rating: g.signals?.avg_rating 
+        ? `${g.signals.avg_rating.toFixed(1)}/5 (${g.signals.ratings_count} utilisateurs)` 
+        : "Pas encore noté",
+      community_feedback: g.comments.length > 0 ? commentsSample : "Aucun avis pour le moment",
+      playtime: g.playtime ? `~${g.playtime}h` : "Variable",
+      searchScore: g.searchScore.toFixed(0),
     };
   });
 
-  const userPrompt = `Demande: "${query}"
+  const userPrompt = `Demande utilisateur: "${query}"
 
-Jeux à recommander:
-${JSON.stringify(gamesData, null, 2)}`;
+TOP JEUX CANDIDATS (avec données complètes):
+${JSON.stringify(gamesData, null, 2)}
+
+Analyse ces jeux et recommande les 3 meilleurs qui correspondent EXACTEMENT à la demande.
+Explique pourquoi chaque jeu est parfait pour cette personne.`;
 
   try {
+    console.log("[AI-RECO] Starting Mistral request...");
+    console.log("[AI-RECO] Games data size:", JSON.stringify(gamesData).length, "bytes");
+    
+    // Timeout: 40 secondes pour Mistral (temps de réflexion)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      console.log("[AI-RECO] Timeout triggered at 40s");
+      controller.abort();
+    }, 40000);
+
     const mistralRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
+      signal: controller.signal,
       method: "POST",
       headers: {
         Authorization: `Bearer ${MISTRAL_API_KEY}`,
@@ -248,8 +275,8 @@ ${JSON.stringify(gamesData, null, 2)}`;
       },
       body: JSON.stringify({
         model: "mistral-large-latest",
-        temperature: 0.6,
-        max_tokens: 400,
+        temperature: 0.7,
+        max_tokens: 600,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -257,16 +284,26 @@ ${JSON.stringify(gamesData, null, 2)}`;
       }),
     });
 
+    clearTimeout(timeoutId);
+    console.log("[AI-RECO] Mistral response status:", mistralRes.status);
+
     if (!mistralRes.ok) {
-      throw new Error(`Mistral ${mistralRes.status}`);
+      const errorText = await mistralRes.text();
+      console.error("[AI-RECO] Mistral error:", errorText);
+      throw new Error(`Mistral ${mistralRes.status}: ${errorText}`);
     }
 
     const mistralJson = await mistralRes.json();
     const raw = mistralJson?.choices?.[0]?.message?.content ?? "";
+    
+    console.log("[AI-RECO] Raw Mistral response length:", raw.length);
+    
     const parsed = safeParseJson(raw);
 
-    if (parsed.ok && parsed.value?.recommendations) {
-      const recs = (parsed.value.recommendations ?? []).slice(0, 3).map((r: any) => ({
+    if (parsed.ok && parsed.value?.recommendations?.length) {
+      console.log("[AI-RECO] Successfully parsed recommendations");
+      
+      const recs = parsed.value.recommendations.slice(0, 3).map((r: any) => ({
         slug: r?.slug,
         title: r?.title,
         why: r?.why,
@@ -283,17 +320,29 @@ ${JSON.stringify(gamesData, null, 2)}`;
         corsHeaders
       );
     } else {
+      console.log("[AI-RECO] Parse failed, using fallback");
+      console.log("[AI-RECO] Parse error:", parsed.error);
+      
+      // Fallback: Retourner les top jeux avec infos enrichies
       return jsonResponse(
         {
           query,
-          answer: raw,
+          recommendations: topGames.slice(0, 3).map((g: any) => ({
+            slug: g.slug,
+            title: g.name,
+            why: `${(g.genres ?? []).map((x: any) => x?.name ?? x).slice(0, 3).join(", ")} - Sorti en ${g.released ? new Date(g.released).getFullYear() : "TBA"}. Score Factiony: ${g.signals?.avg_rating ? g.signals.avg_rating.toFixed(1) : "N/A"}/5`,
+            url: `${BASE_URL}/game/${g.slug}-${g.id}`,
+          })),
+          personal_message: "Analyse basée sur les données Factiony.",
         },
         200,
         corsHeaders
       );
     }
   } catch (e) {
-    console.error("Mistral error:", e);
+    console.error("[AI-RECO] Fatal error:", String(e));
+    
+    // Fallback ultime
     const top = topGames[0];
     return jsonResponse(
       {
@@ -302,11 +351,11 @@ ${JSON.stringify(gamesData, null, 2)}`;
           {
             slug: top.slug,
             title: top.name,
-            why: `${(top.genres ?? []).map((g: any) => g?.name ?? g).slice(0, 2).join(", ")} sorti en ${top.released ? new Date(top.released).getFullYear() : "TBA"}`,
+            why: `${(top.genres ?? []).map((x: any) => x?.name ?? x).join(", ")} recommandé pour toi.`,
             url: `${BASE_URL}/game/${top.slug}-${top.id}`,
           },
         ],
-        personal_message: "Voici ma meilleure recommandation pour ta demande.",
+        personal_message: "Erreur temporaire - voici ma meilleure recommandation.",
       },
       200,
       corsHeaders
