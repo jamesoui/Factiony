@@ -12,7 +12,7 @@ export function buildInstantGamingSearchUrl(
 
   const encodedQuery = encodeURIComponent(fallbackName);
 
-  const url = `https://www.instant-gaming.com/fr/rechercher/?q=${encodedQuery}&igr=gamer-7664396`;
+  const url = `https://www.instant-gaming.com/fr/rechercher/?query=${encodedQuery}&igr=gamer-7664396`;
 
   return sanitizeExternalUrl(url);
 }
