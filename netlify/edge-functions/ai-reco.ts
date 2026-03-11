@@ -72,6 +72,21 @@ export default async (request: Request) => {
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const queryLower = query.toLowerCase();
 
+  // STEP 0: Search dans DB locale d'abord
+const { data: localGames } = await supabase
+  .from('games')
+  .select('id, name, slug, genres, platforms, tags, released, rating, background_image, description_raw')
+  .ilike('name', `%${query}%`)
+  .limit(25);
+
+// Si on trouve des jeux locaux, les utiliser
+if (localGames && localGames.length > 0) {
+  candidatesJson = { results: localGames };
+} else {
+  // Sinon, appeler search-games (RAWG)
+  const searchUrl = ...
+  // ...appel RAWG existant
+}
   // STEP 1: Call search-games
   let candidatesJson: any = null;
   try {
