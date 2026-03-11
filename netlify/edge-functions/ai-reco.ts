@@ -72,21 +72,6 @@ export default async (request: Request) => {
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const queryLower = query.toLowerCase();
 
-  // STEP 0: Search dans DB locale d'abord
-const { data: localGames } = await supabase
-  .from('games')
-  .select('id, name, slug, genres, platforms, tags, released, rating, background_image, description_raw')
-  .ilike('name', `%${query}%`)
-  .limit(25);
-
-// Si on trouve des jeux locaux, les utiliser
-if (localGames && localGames.length > 0) {
-  candidatesJson = { results: localGames };
-} else {
-  // Sinon, appeler search-games (RAWG)
-  const searchUrl = ...
-  // ...appel RAWG existant
-}
   // STEP 1: Call search-games
   let candidatesJson: any = null;
   try {
@@ -252,7 +237,7 @@ FORMAT JSON: {
       platforms: (g.platforms ?? []).map((p: any) => p?.platform?.name ?? p).join(", "),
       tags: (g.tags ?? []).map((t: any) => t?.name ?? t).join(", "),
       released: g.released ? new Date(g.released).toLocaleDateString('fr-FR') : "TBA",
-      description: g.description?.substring(0, 150) + "..." || "N/A",
+      description: g.description_raw?.substring(0, 150) + "..." || "N/A",
       factiony_rating: g.signals?.avg_rating 
         ? `${g.signals.avg_rating.toFixed(1)}/5 (${g.signals.ratings_count} utilisateurs)` 
         : "Pas encore noté",
