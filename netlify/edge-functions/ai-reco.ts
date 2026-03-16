@@ -44,6 +44,7 @@ export default async (request: Request) => {
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
   const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
   const MISTRAL_API_KEY = Deno.env.get("MISTRAL_API_KEY");
+  const RAWG_API_KEY = Deno.env.get("VITE_RAWG_API_KEY") || '11b490685c024c71a0c6562e37e1a87d';
   const BASE_URL = Deno.env.get("FACTIONY_BASE_URL") ?? "https://factiony.com";
 
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !MISTRAL_API_KEY) {
@@ -65,50 +66,95 @@ export default async (request: Request) => {
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const queryLower = query.toLowerCase();
 
-  // STEP 1: Call search-games
-  let candidatesJson: any = null;
-  try {
-    const searchUrl = new URL(`${SUPABASE_URL}/functions/v1/search-games`);
-    searchUrl.searchParams.set("query", query);
-    searchUrl.searchParams.set("page_size", "25");
+  console.log("[AI-RECO] Query:", query);
 
-    const searchRes = await fetch(searchUrl.toString(), {
-      headers: {
-        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-        "Content-Type": "application/json",
-      },
-    });
+  // STEP 1: Build smart RAWG query with filters
+  const rawgParams = new URLSearchParams();
+  rawgParams.set("key", RAWG_API_KEY);
+  rawgParams.set("search", query);
+  rawgParams.set("page_size", "20");
+  rawgParams.set("ordering", "-rating");
 
-    if (searchRes.ok) {
-      candidatesJson = await searchRes.json();
-    }
-  } catch (e) {
-    console.error("Search error:", e);
+  // Add platform filter if mentioned
+  if (queryLower.includes("ps5") || queryLower.includes("playstation 5")) {
+    rawgParams.set("platforms", "187"); // PS5
+  } else if (queryLower.includes("xbox")) {
+    rawgParams.set("platforms", "186"); // Xbox Series X/S
+  } else if (queryLower.includes("switch")) {
+    rawgParams.set("platforms", "7"); // Nintendo Switch
+  } else if (queryLower.includes("pc")) {
+    rawgParams.set("platforms", "4"); // PC
   }
 
-  if (!candidatesJson?.results?.length) {
+  // Add tags filter if mentioned
+  let tagFilters: string[] = [];
+  if (queryLower.includes("coop") || queryLower.includes("coopératif")) {
+    tagFilters.push("coop");
+  }
+  if (queryLower.includes("multiplayer") || queryLower.includes("multijoueur")) {
+    tagFilters.push("multiplayer");
+  }
+  if (queryLower.includes("solo") || queryLower.includes("single")) {
+    tagFilters.push("single-player");
+  }
+
+  if (tagFilters.length > 0) {
+    rawgParams.set("tags", tagFilters.join(","));
+  }
+
+  // STEP 2: Call RAWG API
+  let rawgGames: any[] = [];
+  try {
+    console.log("[AI-RECO] Calling RAWG API with params:", rawgParams.toString());
+    const rawgUrl = `https://api.rawg.io/api/games?${rawgParams.toString()}`;
+    const rawgRes = await fetch(rawgUrl);
+
+    if (rawgRes.ok) {
+      const rawgData = await rawgRes.json();
+      rawgGames = rawgData.results || [];
+      console.log("[AI-RECO] RAWG returned", rawgGames.length, "games");
+    } else {
+      console.error("[AI-RECO] RAWG error:", rawgRes.status);
+    }
+  } catch (e) {
+    console.error("[AI-RECO] RAWG fetch error:", e);
+  }
+
+  if (rawgGames.length === 0) {
     return jsonResponse(
       {
         query,
         recommendations: [],
-        answer: "Aucun jeu trouvé. Reformule ta demande.",
+        answer: "Aucun jeu trouvé. Essaie une autre recherche!",
       },
       200,
       corsHeaders
     );
   }
 
-  const rawGames = candidatesJson.results;
-
-  // STEP 2: Fetch enrichment data in parallel
-  let gameSignalsMap: Record<string, any> = {};
-  let gameCommentsMap: Record<string, any[]> = {};
-
+  // STEP 3: Enrich with FACTIONY data (ratings, comments)
+  let factinyDataMap: Record<string, any> = {};
   try {
+    // Search in Factiony DB by name (fuzzy match)
+    const { data: factinyGames } = await supabase
+      .from("games")
+      .select("id, name, slug")
+      .limit(100);
+
+    if (factinyGames) {
+      factinyGames.forEach((fg: any) => {
+        factinyDataMap[fg.name.toLowerCase()] = fg;
+      });
+    }
+
+    // Get all ratings and comments
     const [signalsRes, commentsRes] = await Promise.all([
       supabase.from("game_signals").select("game_id, avg_rating, ratings_count"),
       supabase.from("game_comments").select("game_id, content, rating"),
     ]);
+
+    let gameSignalsMap: Record<string, any> = {};
+    let gameCommentsMap: Record<string, any[]> = {};
 
     if (signalsRes.data) {
       signalsRes.data.forEach((s: any) => {
@@ -122,161 +168,88 @@ export default async (request: Request) => {
         gameCommentsMap[c.game_id].push(c);
       });
     }
+
+    // Attach Factiony data to RAWG games
+    rawgGames = rawgGames.map((game: any) => {
+      const factinyKey = (game.name || "").toLowerCase();
+      const factinyMatch = factinyDataMap[factinyKey];
+
+      if (factinyMatch) {
+        const signals = gameSignalsMap[factinyMatch.id];
+        const comments = gameCommentsMap[factinyMatch.id] || [];
+
+        return {
+          ...game,
+          factiony_id: factinyMatch.id,
+          factiony_slug: factinyMatch.slug,
+          factiony_rating: signals?.avg_rating,
+          factiony_ratings_count: signals?.ratings_count,
+          factiony_comments: comments.slice(0, 3),
+        };
+      }
+      return game;
+    });
   } catch (e) {
-    console.error("Enrichment error:", e);
+    console.error("[AI-RECO] Factiony enrichment error:", e);
   }
 
-  // STEP 3: Intelligent scoring with STRICT validation
-  const scoredGames = rawGames.map((game: any, idx: number) => {
-    let score = 100 - idx * 5;
+  // STEP 4: Send to Mistral with full context
+  const systemPrompt = `Tu es Factiony AI, l'expert gaming passionné.
 
-    const gameId = game.id?.toString() ?? "";
+Tu reçois des jeux de RAWG (la meilleure base gaming au monde).
+Certains jeux ont aussi des données FACTIONY (ratings + avis communauté).
 
-    // Title/slug match
-    if (game.name?.toLowerCase().includes(queryLower)) score += 30;
-    if (game.slug?.toLowerCase().includes(queryLower)) score += 20;
-
-    // Genres match
-    const genreStr = (game.genres ?? []).map((g: any) => g?.name ?? g).join(" ").toLowerCase();
-    const genreKeywords = ["rpg", "action", "strateg", "indie", "adventure", "puzzle", "shooter", "horror", "battle"];
-    genreKeywords.forEach(kw => {
-      if (queryLower.includes(kw) && genreStr.includes(kw)) score += 25;
-    });
-
-    // Tags match - PRIORITÉ ABSOLUE
-    const tagsStr = (game.tags ?? []).map((t: any) => t?.name ?? t).join(" ").toLowerCase();
-    const tagsArray = (game.tags ?? []).map((t: any) => (t?.name ?? t).toLowerCase());
-    
-    // STRICT COOP MATCHING
-    if (queryLower.includes("coop")) {
-      const hasCoopTag = tagsArray.some(t => t.includes("coop") || t.includes("cooperative"));
-      if (hasCoopTag) {
-        score += 200; // MASSIVE BOOST for coop
-      } else {
-        score -= 100; // PENALTY if coop requested but not tagged
-      }
-    }
-
-    // MULTIPLAYER MATCHING
-    if (queryLower.includes("multiplayer")) {
-      const hasMultiplayer = tagsArray.some(t => t.includes("multiplayer") || t.includes("multi-player") || t.includes("online"));
-      if (hasMultiplayer) {
-        score += 150;
-      } else {
-        score -= 50;
-      }
-    }
-
-    // Other tags
-    ["story", "narrative", "open-world", "dark", "indie", "single-player"].forEach(tag => {
-      if (queryLower.includes(tag) && tagsStr.includes(tag)) score += 20;
-    });
-
-    // Platform match
-    const platformStr = (game.platforms ?? []).map((p: any) => p?.platform?.name ?? p).join(" ").toLowerCase();
-    ["ps5", "ps4", "xbox", "pc", "switch", "nintendo"].forEach(plat => {
-      if (queryLower.includes(plat) && platformStr.includes(plat)) score += 30;
-    });
-
-    // Year match
-    if (game.released) {
-      const gameYear = new Date(game.released).getFullYear();
-      const yearMatch = query.match(/\b(202[0-9]|201[0-9])\b/);
-      if (yearMatch && parseInt(yearMatch[0]) === gameYear) score += 25;
-      if (queryLower.includes("recent") && gameYear >= 2024) score += 10;
-    }
-
-    // RAWG comments match
-    const gameComments = gameCommentsMap[gameId] ?? [];
-    gameComments.forEach(gc => {
-      if ((gc.content ?? "").toLowerCase().includes(queryLower)) score += 20;
-      if (gc.rating >= 8) score += 8;
-    });
-
-    // Factiony rating bonus
-    const signals = gameSignalsMap[gameId];
-    if (signals?.avg_rating >= 4.5) score += 30;
-    if (signals?.avg_rating >= 4.0) score += 20;
-    if (signals?.ratings_count >= 10) score += 15;
-
-    return { ...game, searchScore: score, signals, comments: gameComments };
-  });
-
-  // CREATE topGames HERE (this was the bug!)
-  const topGames = scoredGames
-    .sort((a: any, b: any) => (b.searchScore ?? 0) - (a.searchScore ?? 0))
-    .slice(0, 5);
-
-  if (topGames.length === 0) {
-    return jsonResponse(
-      {
-        query,
-        recommendations: [],
-        answer: "Aucun jeu trouvé.",
-      },
-      200,
-      corsHeaders
-    );
-  }
-
-  // STEP 4: Send to Mistral with FULL CONTEXT (40s timeout)
-  const systemPrompt = `Tu es Factiony AI, l'assistant gaming de Factiony.
-Tu recommandes des jeux PARFAITS pour les demandes spécifiques.
-
-RÈGLES STRICTES:
-1. Si demande "COOP" → recommande UNIQUEMENT jeux avec tag 'coop' ou 'cooperative'
-2. Si demande "MULTIPLAYER" → recommande UNIQUEMENT jeux multiplayer
-3. Si demande mentionne PLATEFORME → recommande UNIQUEMENT cette plateforme
-4. Recommande jeux avec VRAIES données (genres, tags, platforms)
-5. Jamais inventer, être honnête si pas trouvé
-6. Explique PRÉCISÉMENT pourquoi ce jeu match la demande
+RÈGLES:
+1. Si demande "COOP" → recommande UNIQUEMENT jeux avec tag coop
+2. Si demande "MULTIPLAYER" → recommande UNIQUEMENT multiplayer
+3. Si demande plateforme → recommande UNIQUEMENT cette plateforme
+4. Explique POURQUOI chaque jeu match la demande
+5. Mentionne le rating FACTIONY si disponible (preuve social)
+6. Si pas assez de vrais matches → sois honnête
 
 FORMAT JSON: {
   "recommendations": [
-    {"slug":"...","title":"...","why":"Pourquoi c'est PARFAIT (coop/multiplayer/plateforme/etc)","id":"..."},
-    ...
+    {
+      "slug": "game-slug",
+      "title": "Game Title",
+      "why": "Explication détaillée pourquoi c'est PARFAIT pour cette demande",
+      "id": "game_id"
+    }
   ],
-  "personal_message": "Message personnel..."
+  "personal_message": "Message personnalisé"
 }`;
 
-  const gamesData = topGames.slice(0, 5).map((g: any) => {
-    const commentsSample = (g.comments ?? [])
-      .slice(0, 3)
-      .map((c: any) => `"${c.content.substring(0, 80)}..." (note: ${c.rating})`)
-      .join(" | ");
-
-    return {
-      id: g.id,
-      slug: g.slug,
-      name: g.name,
-      genres: (g.genres ?? []).map((x: any) => x?.name ?? x).join(", "),
-      platforms: (g.platforms ?? []).map((p: any) => p?.platform?.name ?? p).join(", "),
-      tags: (g.tags ?? []).map((t: any) => t?.name ?? t).join(", "),
-      released: g.released ? new Date(g.released).toLocaleDateString('fr-FR') : "TBA",
-      description: g.description_raw?.substring(0, 150) + "..." || "N/A",
-      factiony_rating: g.signals?.avg_rating 
-        ? `${g.signals.avg_rating.toFixed(1)}/5 (${g.signals.ratings_count} utilisateurs)` 
-        : "Pas encore noté",
-      community_feedback: g.comments.length > 0 ? commentsSample : "Aucun avis pour le moment",
-      playtime: g.playtime ? `~${g.playtime}h` : "Variable",
-      searchScore: g.searchScore.toFixed(0),
-    };
-  });
+  const gamesData = rawgGames.slice(0, 10).map((game: any) => ({
+    id: game.id,
+    slug: game.slug,
+    name: game.name,
+    genres: (game.genres || []).map((g: any) => g.name).join(", "),
+    platforms: (game.platforms || []).map((p: any) => p.platform.name).join(", "),
+    tags: (game.tags || []).map((t: any) => t.name).join(", "),
+    released: game.released ? new Date(game.released).getFullYear() : "TBA",
+    rating: game.rating,
+    description: game.description?.substring(0, 200) || game.name,
+    // FACTIONY DATA
+    factiony_rating: game.factiony_rating ? `${game.factiony_rating.toFixed(1)}/5 (${game.factiony_ratings_count} utilisateurs Factiony)` : "Pas encore noté sur Factiony",
+    factiony_feedback: game.factiony_comments?.length > 0 
+      ? game.factiony_comments.map((c: any) => `"${c.content.substring(0, 60)}..."`).join(" | ")
+      : "Aucun avis Factiony",
+  }));
 
   const userPrompt = `Demande utilisateur: "${query}"
 
-TOP JEUX CANDIDATS (avec données complètes):
+JEUX DISPONIBLES (RAWG + enrichissement FACTIONY):
 ${JSON.stringify(gamesData, null, 2)}
 
-Analyse ces jeux et recommande les 3 meilleurs qui correspondent EXACTEMENT à la demande.
-Explique pourquoi chaque jeu est parfait pour cette personne.`;
+Recommande les 3 meilleurs qui correspondent EXACTEMENT à cette demande.
+Sois honnête: si aucun match parfait, dis-le.`;
 
   try {
-    console.log("[AI-RECO] Starting Mistral request...");
-    
+    console.log("[AI-RECO] Sending to Mistral...");
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
-      console.log("[AI-RECO] Timeout triggered at 40s");
+      console.log("[AI-RECO] Timeout at 40s");
       controller.abort();
     }, 40000);
 
@@ -290,7 +263,7 @@ Explique pourquoi chaque jeu est parfait pour cette personne.`;
       body: JSON.stringify({
         model: "mistral-large-latest",
         temperature: 0.7,
-        max_tokens: 600,
+        max_tokens: 800,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -299,22 +272,21 @@ Explique pourquoi chaque jeu est parfait pour cette personne.`;
     });
 
     clearTimeout(timeoutId);
-    console.log("[AI-RECO] Mistral response status:", mistralRes.status);
 
     if (!mistralRes.ok) {
       const errorText = await mistralRes.text();
       console.error("[AI-RECO] Mistral error:", errorText);
-      throw new Error(`Mistral ${mistralRes.status}: ${errorText}`);
+      throw new Error(`Mistral ${mistralRes.status}`);
     }
 
     const mistralJson = await mistralRes.json();
     const raw = mistralJson?.choices?.[0]?.message?.content ?? "";
-    
+
     const parsed = safeParseJson(raw);
 
     if (parsed.ok && parsed.value?.recommendations?.length) {
-      console.log("[AI-RECO] Successfully parsed recommendations");
-      
+      console.log("[AI-RECO] Success! Parsed", parsed.value.recommendations.length, "recommendations");
+
       const recs = parsed.value.recommendations.slice(0, 3).map((r: any) => ({
         slug: r?.slug,
         title: r?.title,
@@ -332,18 +304,18 @@ Explique pourquoi chaque jeu est parfait pour cette personne.`;
         corsHeaders
       );
     } else {
-      console.log("[AI-RECO] Parse failed, using fallback");
-      
+      console.log("[AI-RECO] Parse failed, fallback");
+
       return jsonResponse(
         {
           query,
-          recommendations: topGames.slice(0, 3).map((g: any) => ({
+          recommendations: rawgGames.slice(0, 3).map((g: any) => ({
             slug: g.slug,
             title: g.name,
-            why: `${(g.genres ?? []).map((x: any) => x?.name ?? x).slice(0, 3).join(", ")} - Sorti en ${g.released ? new Date(g.released).getFullYear() : "TBA"}. Score Factiony: ${g.signals?.avg_rating ? g.signals.avg_rating.toFixed(1) : "N/A"}/5`,
+            why: `${g.genres?.map((x: any) => x.name).slice(0, 2).join(", ") || "Jeu"} - Note RAWG: ${g.rating}/5. ${g.factiony_rating ? `Note Factiony: ${g.factiony_rating}` : ""}`,
             url: `${BASE_URL}/game/${g.slug}-${g.id}`,
           })),
-          personal_message: "Analyse basée sur les données Factiony.",
+          personal_message: "Top recommendations basé sur RAWG + Factiony",
         },
         200,
         corsHeaders
@@ -351,8 +323,8 @@ Explique pourquoi chaque jeu est parfait pour cette personne.`;
     }
   } catch (e) {
     console.error("[AI-RECO] Fatal error:", String(e));
-    
-    const top = topGames[0];
+
+    const top = rawgGames[0];
     return jsonResponse(
       {
         query,
@@ -360,11 +332,11 @@ Explique pourquoi chaque jeu est parfait pour cette personne.`;
           {
             slug: top.slug,
             title: top.name,
-            why: `${(top.genres ?? []).map((x: any) => x?.name ?? x).join(", ")} recommandé pour toi.`,
+            why: `${top.genres?.map((x: any) => x.name).join(", ") || "Jeu"} - Note: ${top.rating}/5`,
             url: `${BASE_URL}/game/${top.slug}-${top.id}`,
           },
         ],
-        personal_message: "Erreur temporaire - voici ma meilleure recommandation.",
+        personal_message: "Erreur temporaire - voici le meilleur match",
       },
       200,
       corsHeaders
