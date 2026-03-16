@@ -117,13 +117,27 @@ export default async (request: Request) => {
     }
   }
 
-  console.log("[AI-RECO] Parsed - platform:", platformId, "tags:", tags, "genre:", genre);
+  // Extract release date filter
+  let releaseDateAfter = null;
+  if (queryLower.includes("cette semaine") || queryLower.includes("this week") || queryLower.includes("cette semaine") || queryLower.includes("sortie") || queryLower.includes("release")) {
+    const today = new Date();
+    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    releaseDateAfter = weekAgo.toISOString().split('T')[0];
+  } else if (queryLower.includes("ce mois") || queryLower.includes("this month")) {
+    const today = new Date();
+    const monthAgo = new Date(today.getFullYear(), today.getMonth(), 1);
+    releaseDateAfter = monthAgo.toISOString().split('T')[0];
+  } else if (queryLower.includes("cette année") || queryLower.includes("2026") || queryLower.includes("this year")) {
+    releaseDateAfter = "2026-01-01";
+  }
+
+  console.log("[AI-RECO] Parsed - platform:", platformId, "tags:", tags, "genre:", genre, "releaseDateAfter:", releaseDateAfter);
 
   // STEP 2: Build RAWG query
   const rawgParams = new URLSearchParams();
   rawgParams.set("key", RAWG_API_KEY);
-  rawgParams.set("page_size", "25");
-  rawgParams.set("ordering", "-rating");
+  rawgParams.set("page_size", "40");
+  rawgParams.set("ordering", releaseDateAfter ? "-released" : "-rating");
 
   if (platformId) {
     rawgParams.set("platforms", platformId);
@@ -135,6 +149,10 @@ export default async (request: Request) => {
 
   if (genre) {
     rawgParams.set("genres", genre);
+  }
+
+  if (releaseDateAfter) {
+    rawgParams.set("dates", `${releaseDateAfter},2026-12-31`);
   }
 
   let searchKeywords = queryLower
