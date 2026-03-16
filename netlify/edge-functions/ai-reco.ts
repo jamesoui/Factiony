@@ -94,17 +94,21 @@ export default async (request: Request) => {
 
   console.log("[AI-RECO] Platform:", platformId, "Keywords:", searchKeywords);
 
-  // BUILD RAWG QUERY - SIMPLE!
+  // BUILD RAWG QUERY
   const rawgParams = new URLSearchParams();
   rawgParams.set("key", RAWG_API_KEY);
-  rawgParams.set("page_size", "50");
+  rawgParams.set("page_size", "80");
   rawgParams.set("ordering", "-rating");
 
   if (platformId) {
     rawgParams.set("platforms", platformId);
   }
 
-  if (searchKeywords) {
+  // ONLY search by name if keywords don't contain feature words
+  const featureWords = ["coop", "multiplayer", "solo", "rpg", "action", "strategy", "adventure", "puzzle", "shooter", "racing", "horror", "indie"];
+  const hasFeatureWords = featureWords.some(word => queryLower.includes(word));
+  
+  if (searchKeywords && !hasFeatureWords) {
     rawgParams.set("search", searchKeywords);
   }
 
