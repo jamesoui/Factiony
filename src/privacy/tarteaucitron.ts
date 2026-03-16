@@ -69,12 +69,18 @@ export function initCookieConsent(): void {
       mandatory: true,
     });
 
+    // Google Analytics GA4
     const GA_ID = import.meta.env.VITE_GA_MEASUREMENT_ID;
     if (GA_ID && typeof GA_ID === 'string' && GA_ID.startsWith('G-')) {
       window.tarteaucitron.user.gtagUa = GA_ID;
       (window.tarteaucitron.job = window.tarteaucitron.job || []).push('gtag');
-      console.log('Google Analytics GA4 service added to Tarteaucitron:', GA_ID);
+      console.log('Google Analytics GA4 added to Tarteaucitron:', GA_ID);
     }
+
+    // Google AdSense — chargé uniquement après consentement
+    window.tarteaucitron.user.adSensePublisher = 'ca-pub-8256533514731326';
+    (window.tarteaucitron.job = window.tarteaucitron.job || []).push('adsense');
+    console.log('Google AdSense added to Tarteaucitron');
 
     isInitialized = true;
     console.log('Tarteaucitron cookie consent initialized successfully');
