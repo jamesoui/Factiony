@@ -133,7 +133,7 @@ export default async (request: Request) => {
     console.error("Enrichment error:", e);
   }
 
-  // STEP 3: Intelligent scoring
+  // STEP 3: Intelligent scoring with STRICT validation
   const scoredGames = rawGames.map((game: any, idx: number) => {
     let score = 100 - idx * 5;
 
@@ -150,16 +150,39 @@ export default async (request: Request) => {
       if (queryLower.includes(kw) && genreStr.includes(kw)) score += 25;
     });
 
-    // Tags match
+    // Tags match - PRIORITÉ ABSOLUE
     const tagsStr = (game.tags ?? []).map((t: any) => t?.name ?? t).join(" ").toLowerCase();
-    ["story", "coop", "cooperative", "multiplayer", "narrative", "open-world", "dark"].forEach(tag => {
+    const tagsArray = (game.tags ?? []).map((t: any) => (t?.name ?? t).toLowerCase());
+    
+    // STRICT COOP MATCHING
+    if (queryLower.includes("coop")) {
+      const hasCoopTag = tagsArray.some(t => t.includes("coop") || t.includes("cooperative"));
+      if (hasCoopTag) {
+        score += 200; // MASSIVE BOOST for coop
+      } else {
+        score -= 100; // PENALTY if coop requested but not tagged
+      }
+    }
+
+    // MULTIPLAYER MATCHING
+    if (queryLower.includes("multiplayer")) {
+      const hasMultiplayer = tagsArray.some(t => t.includes("multiplayer") || t.includes("multi-player") || t.includes("online"));
+      if (hasMultiplayer) {
+        score += 150;
+      } else {
+        score -= 50;
+      }
+    }
+
+    // Other tags
+    ["story", "narrative", "open-world", "dark", "indie", "single-player"].forEach(tag => {
       if (queryLower.includes(tag) && tagsStr.includes(tag)) score += 20;
     });
 
     // Platform match
     const platformStr = (game.platforms ?? []).map((p: any) => p?.platform?.name ?? p).join(" ").toLowerCase();
-    ["ps5", "ps4", "xbox", "pc", "switch"].forEach(plat => {
-      if (queryLower.includes(plat) && platformStr.includes(plat)) score += 20;
+    ["ps5", "ps4", "xbox", "pc", "switch", "nintendo"].forEach(plat => {
+      if (queryLower.includes(plat) && platformStr.includes(plat)) score += 30;
     });
 
     // Year match
@@ -173,51 +196,34 @@ export default async (request: Request) => {
     // RAWG comments match
     const gameComments = gameCommentsMap[gameId] ?? [];
     gameComments.forEach(gc => {
-      if ((gc.content ?? "").toLowerCase().includes(queryLower)) score += 15;
-      if (gc.rating >= 8) score += 5;
+      if ((gc.content ?? "").toLowerCase().includes(queryLower)) score += 20;
+      if (gc.rating >= 8) score += 8;
     });
 
     // Factiony rating bonus
     const signals = gameSignalsMap[gameId];
+    if (signals?.avg_rating >= 4.5) score += 30;
     if (signals?.avg_rating >= 4.0) score += 20;
-    if (signals?.ratings_count >= 5) score += 10;
+    if (signals?.ratings_count >= 10) score += 15;
 
     return { ...game, searchScore: score, signals, comments: gameComments };
   });
 
-  const topGames = scoredGames
-    .sort((a, b) => (b.searchScore ?? 0) - (a.searchScore ?? 0))
-    .slice(0, 5);
-
-  console.log("Query:", query);
-  console.log("Top games:", topGames.slice(0, 3).map((g: any) => `${g.name} (${g.searchScore})`));
-
-  if (topGames.length === 0) {
-    return jsonResponse(
-      {
-        query,
-        recommendations: [],
-        answer: "Aucun jeu trouvé.",
-      },
-      200,
-      corsHeaders
-    );
-  }
-
   // STEP 4: Send to Mistral with FULL CONTEXT (40s timeout)
   const systemPrompt = `Tu es Factiony AI, l'assistant gaming de Factiony.
-Tu as accès aux meilleurs jeux et tu dois recommander intelligemment.
+Tu recommandes des jeux PARFAITS pour les demandes spécifiques.
 
-RÈGLES:
-1. Recommande UNIQUEMENT les jeux fournis.
-2. Utilise TOUS les détails (genres, tags, avis communauté, ratings).
-3. Sois précis, utile, passionné.
-4. Jamais inventer d'infos.
-5. Une recommandation = pourquoi c'est PARFAIT pour cette demande.
+RÈGLES STRICTES:
+1. Si demande demande "COOP" → REJETTE tous les jeux sans tag 'coop' ou 'cooperative'
+2. Si demande demande "MULTIPLAYER" → REJETTE jeux solo-only
+3. Si demande mentionne une PLATEFORME → recommande UNIQUEMENT sur cette plateforme
+4. Recommande jeux avec VRAIES données (genres, tags, playtime)
+5. Jamais inventer, être honnête si pas trouvé
+6. Explique PRÉCISÉMENT pourquoi ce jeu match la demande
 
 FORMAT JSON: {
   "recommendations": [
-    {"slug":"...","title":"...","why":"...","id":"..."},
+    {"slug":"...","title":"...","why":"Pourquoi c'est PARFAIT (coop/multiplayer/plateforme/etc)","id":"..."},
     ...
   ],
   "personal_message": "Message personnel..."
