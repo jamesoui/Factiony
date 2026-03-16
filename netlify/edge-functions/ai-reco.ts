@@ -26,13 +26,6 @@ function safeParseJson(raw: string) {
   }
 }
 
-function getBearerToken(req: Request): string | null {
-  const h = req.headers.get("authorization");
-  if (!h) return null;
-  const m = h.match(/^Bearer\s+(.+)$/i);
-  return m ? m[1] : null;
-}
-
 export default async (request: Request) => {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -209,15 +202,32 @@ export default async (request: Request) => {
     return { ...game, searchScore: score, signals, comments: gameComments };
   });
 
+  // CREATE topGames HERE (this was the bug!)
+  const topGames = scoredGames
+    .sort((a: any, b: any) => (b.searchScore ?? 0) - (a.searchScore ?? 0))
+    .slice(0, 5);
+
+  if (topGames.length === 0) {
+    return jsonResponse(
+      {
+        query,
+        recommendations: [],
+        answer: "Aucun jeu trouvé.",
+      },
+      200,
+      corsHeaders
+    );
+  }
+
   // STEP 4: Send to Mistral with FULL CONTEXT (40s timeout)
   const systemPrompt = `Tu es Factiony AI, l'assistant gaming de Factiony.
 Tu recommandes des jeux PARFAITS pour les demandes spécifiques.
 
 RÈGLES STRICTES:
-1. Si demande demande "COOP" → REJETTE tous les jeux sans tag 'coop' ou 'cooperative'
-2. Si demande demande "MULTIPLAYER" → REJETTE jeux solo-only
-3. Si demande mentionne une PLATEFORME → recommande UNIQUEMENT sur cette plateforme
-4. Recommande jeux avec VRAIES données (genres, tags, playtime)
+1. Si demande "COOP" → recommande UNIQUEMENT jeux avec tag 'coop' ou 'cooperative'
+2. Si demande "MULTIPLAYER" → recommande UNIQUEMENT jeux multiplayer
+3. Si demande mentionne PLATEFORME → recommande UNIQUEMENT cette plateforme
+4. Recommande jeux avec VRAIES données (genres, tags, platforms)
 5. Jamais inventer, être honnête si pas trouvé
 6. Explique PRÉCISÉMENT pourquoi ce jeu match la demande
 
