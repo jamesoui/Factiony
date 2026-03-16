@@ -173,12 +173,47 @@ export default async (request: Request) => {
     const rawgUrl = `https://api.rawg.io/api/games?${rawgParams.toString()}`;
     console.log("[AI-RECO] RAWG URL:", rawgUrl);
     
-    const rawgRes = await fetch(rawgUrl);
+    let rawgRes = await fetch(rawgUrl);
 
     if (rawgRes.ok) {
       const rawgData = await rawgRes.json();
       rawgGames = rawgData.results || [];
       console.log("[AI-RECO] RAWG returned", rawgGames.length, "games");
+
+      // FALLBACK: Si 0 résultats avec filters stricts, retry plus largement
+      if (rawgGames.length === 0 && (tags.length > 0 || genre)) {
+        console.log("[AI-RECO] Fallback: retrying without strict filters");
+        
+        const fallbackParams = new URLSearchParams();
+        fallbackParams.set("key", RAWG_API_KEY);
+        fallbackParams.set("page_size", "40");
+        fallbackParams.set("ordering", "-rating");
+        
+        // Keep platform if specified
+        if (platformId) {
+          fallbackParams.set("platforms", platformId);
+        }
+        
+        // Try only with genre (no strict tags)
+        if (genre && !tags.includes("coop") && !tags.includes("multiplayer")) {
+          fallbackParams.set("genres", genre);
+        }
+        
+        // Add search if we have keywords
+        if (searchKeywords) {
+          fallbackParams.set("search", searchKeywords);
+        }
+
+        const fallbackUrl = `https://api.rawg.io/api/games?${fallbackParams.toString()}`;
+        console.log("[AI-RECO] Fallback URL:", fallbackUrl);
+        
+        const fallbackRes = await fetch(fallbackUrl);
+        if (fallbackRes.ok) {
+          const fallbackData = await fallbackRes.json();
+          rawgGames = fallbackData.results || [];
+          console.log("[AI-RECO] Fallback returned", rawgGames.length, "games");
+        }
+      }
     } else {
       console.error("[AI-RECO] RAWG error:", rawgRes.status);
     }
