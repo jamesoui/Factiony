@@ -308,25 +308,32 @@ IMPORTANT: Pas d'article long! Sois DIRECT et COURT!`;
   } catch (e) {
     console.error("[AI-RECO] Error:", e);
     const top3 = rawgGames.slice(0, 3);
-    const summary = `Mes 3 meilleurs choix pour ${userPseudo}:\n${top3.map((g, i) => {
+    
+    const recs = top3.map((g: any, i: number) => {
       const genreStr = (g.genres || []).map((gen: any) => typeof gen === "string" ? gen : gen.name).slice(0, 2).join(", ");
-      return `${i+1}. ${g.name} (${genreStr})`;
-    }).join("\n")}\n\nUn de ces trois te tente? Lequel?`;
+      return {
+        slug: g.slug,
+        title: g.name,
+        why: genreStr ? `${genreStr} - ${g.rating}/5` : `${g.rating}/5`,
+        url: `${BASE_URL}/game/${g.slug}-${g.id}`,
+      };
+    });
+
+    let summaryText = `Mes 3 meilleurs choix pour ${userPseudo}:\n`;
+    top3.forEach((g: any, i: number) => {
+      const genreStr = (g.genres || []).map((gen: any) => typeof gen === "string" ? gen : gen.name).slice(0, 2).join(", ");
+      summaryText += `${i+1}. ${g.name}`;
+      if (genreStr) summaryText += ` (${genreStr})`;
+      summaryText += "\n";
+    });
+    summaryText += "\nUn de ces trois te tente? Lequel?";
     
     return jsonResponse(
       {
         query,
         user_pseudo: userPseudo,
-        recommendations: top3.map((g: any) => {
-          const genreStr = (g.genres || []).map((gen: any) => typeof gen === "string" ? gen : gen.name).slice(0, 2).join(", ");
-          return {
-            slug: g.slug,
-            title: g.name,
-            why: `${genreStr} - ${g.rating}/5`,
-            url: `${BASE_URL}/game/${g.slug}-${g.id}`,
-          };
-        }),
-        personal_message: summary,
+        recommendations: recs,
+        personal_message: summaryText,
       },
       200,
       corsHeaders
