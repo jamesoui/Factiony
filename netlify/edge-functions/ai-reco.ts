@@ -59,7 +59,7 @@ export default async (request: Request) => {
   }
 
   const query = (body?.query ?? "").toString().trim();
-  const userPseudo = (body?.user_pseudo ?? "Gamer").toString().trim();
+  const userPseudo = (body?.user_pseudo ?? "").toString().trim();
   
   if (!query) {
     return jsonResponse({ error: "Missing query" }, 400, corsHeaders);
@@ -125,13 +125,14 @@ export default async (request: Request) => {
   }
 
   if (rawgGames.length === 0) {
-    const noGameMsg = "Désolé " + userPseudo + ", je n'ai pas trouvé de jeux. Essaie avec d'autres mots-clés!";
+    const noGameMsg = "Désolé, je n'ai pas trouvé de jeux. Essaie avec d'autres mots-clés!";
     return jsonResponse(
       {
         query,
         user_pseudo: userPseudo,
         recommendations: [],
-        answer: noGameMsg,
+        short_summary: noGameMsg,
+        personal_message: noGameMsg,
       },
       200,
       corsHeaders
@@ -188,7 +189,7 @@ export default async (request: Request) => {
     console.error("[AI-RECO] Enrichment error:", e);
   }
 
-  const systemPrompt = "Tu es Factiony AI, expert gaming.\n\nTu dois:\n1. Recommander les 3 meilleurs jeux basé sur la demande de " + userPseudo + "\n2. Si demande COOP -> recommande UNIQUEMENT jeux coopératifs\n3. Si demande MULTIPLAYER -> recommande UNIQUEMENT jeux multiplayer\n4. Si plateforme -> recommande UNIQUEMENT cette plateforme\n5. Pour CHAQUE jeu: 1-2 phrases WHY (court et percutant)\n\nA LA FIN - C'EST COURT:\n- Résumé ultra court des 3 choix (max 2-3 lignes)\n- UNE question ouverte engageante\n\nSTYLE:\n- Passionné, direct, sans emoji\n- Jamais de tableaux, jamais d'articles longs\n- Court, impactant\n- Engage la conversation!";
+  const systemPrompt = "Tu es Factiony AI, expert gaming.\n\nTu dois:\n1. Recommander les 3 meilleurs jeux basé sur: " + query + "\n2. Si demande COOP -> recommande UNIQUEMENT jeux coopératifs\n3. Si demande MULTIPLAYER -> recommande UNIQUEMENT jeux multiplayer\n4. Si plateforme -> recommande UNIQUEMENT cette plateforme\n5. Pour CHAQUE jeu: 1-2 phrases WHY (court et percutant)\n\nSTYLE:\n- Passionné, direct, sans emoji\n- Jamais de tableaux, jamais d'articles longs\n- Court, impactant\n- Engagement et naturel!";
 
   const gamesData = rawgGames.slice(0, 15).map((game: any) => ({
     id: game.id,
@@ -201,7 +202,7 @@ export default async (request: Request) => {
     factiony_rating: game.factiony_rating ? game.factiony_rating.toFixed(1) + "/5" : "—",
   }));
 
-  const userPromptText = userPseudo + " te demande: " + JSON.stringify(query) + "\n\nJeux trouvés:\n" + JSON.stringify(gamesData, null, 2) + "\n\nRecommande les 3 meilleurs (COURT pour chaque!), puis résumé ULTRA COURT + UNE question engageante.\n\nIMPORTANT: Pas d'article long! Sois DIRECT et COURT!";
+  const userPromptText = "Demande: " + JSON.stringify(query) + "\n\nJeux trouvés:\n" + JSON.stringify(gamesData, null, 2) + "\n\nRecommande les 3 meilleurs (COURT pour chaque!), puis une question pour relancer la conversation.";
 
   try {
     const controller = new AbortController();
@@ -263,12 +264,27 @@ export default async (request: Request) => {
       }));
     }
 
+    const recommendations3 = recommendations.slice(0, 3);
+
+    let summaryText = "";
+    recommendations3.forEach((r: any, i: number) => {
+      summaryText += r.title + " (" + r.why + ")";
+      if (i < recommendations3.length - 1) summaryText += " / ";
+    });
+
+    let questionText = raw;
+    const questionMatch = raw.match(/(\?[^\?]*?)$/);
+    if (questionMatch) {
+      questionText = questionMatch[1].trim();
+    }
+
     return jsonResponse(
       {
         query,
         user_pseudo: userPseudo,
-        recommendations: recommendations.slice(0, 3),
-        personal_message: raw,
+        recommendations: recommendations3,
+        short_summary: summaryText,
+        personal_message: questionText,
       },
       200,
       corsHeaders
@@ -288,22 +304,21 @@ export default async (request: Request) => {
       };
     });
 
-    let summaryText = "Mes 3 meilleurs choix pour " + userPseudo + ":\n";
-    top3.forEach((g: any, i: number) => {
-      const genreArr = (g.genres || []) as any[];
-      const genreStr = genreArr.map((gen: any) => typeof gen === "string" ? gen : gen.name).slice(0, 2).join(", ");
-      summaryText += (i + 1) + ". " + g.name;
-      if (genreStr) summaryText += " (" + genreStr + ")";
-      summaryText += "\n";
+    let summaryText = "";
+    recs.forEach((r: any, i: number) => {
+      summaryText += r.title + " (" + r.why + ")";
+      if (i < recs.length - 1) summaryText += " / ";
     });
-    summaryText += "\nUn de ces trois te tente? Lequel?";
+
+    let questionText = "Lequel de ces trois te tente?";
     
     return jsonResponse(
       {
         query,
         user_pseudo: userPseudo,
         recommendations: recs,
-        personal_message: summaryText,
+        short_summary: summaryText,
+        personal_message: questionText,
       },
       200,
       corsHeaders
