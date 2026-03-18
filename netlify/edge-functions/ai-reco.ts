@@ -141,36 +141,96 @@ async function handleGameplayQuestion(query: string, userPseudo: string, mistral
 async function handleRecommendation(query: string, userPseudo: string, rawgKey: string, mistralKey: string, baseUrl: string, supabaseUrl: string, supabaseKey: string, corsHeaders: Record<string, string>) {
   const queryLower = query.toLowerCase();
 
-  // Platform detection
+  // ==================== STEP 1: MISTRAL PARSES THE QUERY ====================
+  let parsedTags: string[] = [];
   let platformId = null;
-  if (queryLower.includes("ps5")) platformId = "187";
-  else if (queryLower.includes("xbox")) platformId = "186";
-  else if (queryLower.includes("switch")) platformId = "7";
-  else if (queryLower.includes("pc")) platformId = "4";
 
-  // Extract TAG ID
-  let tagId = null;
-  for (const [keyword, id] of Object.entries(TAG_IDS)) {
-    if (queryLower.includes(keyword)) {
-      tagId = id;
-      break;
+  try {
+    const parseSystemPrompt = "Tu es un expert gaming. Parse la requête utilisateur pour extraire les genres/tags RAWG pertinents.\n\nTags disponibles: action, adventure, rpg, strategy, shooter, racing, puzzle, horror, indie, sports, coop, multiplayer, solo, simulation, fighting.\n\nRéponds au format: tags:action,adventure platform:ps5\n\nSi pas de tags clairs, laisse vide.";
+
+    const parseUserPrompt = `Requête: "${query}"
+
+Extrait max 2 tags RAWG pertinents et la plateforme si mentionnée.
+Format réponse: tags:tag1,tag2 platform:ps5`;
+
+    const parseRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + mistralKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "mistral-large-latest",
+        temperature: 0.5,
+        max_tokens: 100,
+        messages: [
+          { role: "system", content: parseSystemPrompt },
+          { role: "user", content: parseUserPrompt },
+        ],
+      }),
+    });
+
+    if (parseRes.ok) {
+      const parseJson = await parseRes.json();
+      const parseResult = parseJson?.choices?.[0]?.message?.content ?? "";
+      console.log("[AI-RECO] Parsed result:", parseResult);
+
+      // Extract tags from response
+      const tagsMatch = parseResult.match(/tags:([^\s]+)/);
+      if (tagsMatch) {
+        const tagNames = tagsMatch[1].split(",");
+        parsedTags = tagNames
+          .map((tag: string) => TAG_IDS[tag.trim()])
+          .filter((id: any) => id !== undefined)
+          .map((id: number) => id.toString());
+        console.log("[AI-RECO] Extracted tag IDs:", parsedTags);
+      }
+
+      // Extract platform from response
+      const platformMatch = parseResult.match(/platform:(\w+)/);
+      if (platformMatch) {
+        const platformName = platformMatch[1].toLowerCase();
+        if (platformName.includes("ps5")) platformId = "187";
+        else if (platformName.includes("xbox")) platformId = "186";
+        else if (platformName.includes("switch")) platformId = "7";
+        else if (platformName.includes("pc")) platformId = "4";
+        console.log("[AI-RECO] Extracted platform:", platformId);
+      }
     }
+  } catch (e) {
+    console.error("[AI-RECO] Parsing error (non-critical):", e);
+    // Continue without parsed tags
+  }
+
+  // ==================== STEP 2: FALLBACK TO SIMPLE EXTRACTION ====================
+  if (parsedTags.length === 0) {
+    // If Mistral parsing didn't work, fall back to simple keyword matching
+    for (const [keyword, id] of Object.entries(TAG_IDS)) {
+      if (queryLower.includes(keyword)) {
+        parsedTags = [id.toString()];
+        break;
+      }
+    }
+  }
+
+  if (!platformId) {
+    if (queryLower.includes("ps5")) platformId = "187";
+    else if (queryLower.includes("xbox")) platformId = "186";
+    else if (queryLower.includes("switch")) platformId = "7";
+    else if (queryLower.includes("pc")) platformId = "4";
   }
 
   // Clean search keywords
   let searchKeywords = queryLower
-    .replace(/ps5|playstation|xbox|switch|pc|sur|on|à|pour|jeux|game|games|the|a|an|le|la|les|un|une|des|et|coop|multiplayer|solo|rpg|action|strategy|adventure|puzzle|shooter|racing|horror|indie/gi, "")
+    .replace(/ps5|playstation|xbox|switch|pc|sur|on|à|pour|jeux|game|games|the|a|an|le|la|les|un|une|des|et|coop|multiplayer|solo|rpg|action|strategy|adventure|puzzle|shooter|racing|horror|indie|adoré|adorée|love|aimé|like/gi, "")
     .trim();
 
-  console.log("[AI-RECO] Platform:", platformId, "Tag ID:", tagId, "Search:", searchKeywords);
+  console.log("[AI-RECO] Platform:", platformId, "Tag IDs:", parsedTags, "Search:", searchKeywords);
 
-  // RAWG Query
+  // ==================== STEP 3: CALL RAWG ====================
   const rawgParams = new URLSearchParams();
   rawgParams.set("key", rawgKey);
   rawgParams.set("page_size", "50");
   rawgParams.set("ordering", "-rating");
   if (platformId) rawgParams.set("platforms", platformId);
-  if (tagId) rawgParams.set("tags", tagId.toString());
+  if (parsedTags.length > 0) rawgParams.set("tags", parsedTags.join(","));
   if (searchKeywords) rawgParams.set("search", searchKeywords);
 
   let rawgGames: any[] = [];
@@ -196,6 +256,7 @@ async function handleRecommendation(query: string, userPseudo: string, rawgKey: 
     }, 200, corsHeaders);
   }
 
+  // ==================== STEP 4: RECOMMEND WITH MISTRAL ====================
   const systemPrompt = "Tu es Factiony AI. Recommande EXACTEMENT 3 jeux.\n\nFormat:\n1. Titre du jeu\nDescription (2-3 lignes) pourquoi ça match\n\n2. Titre du jeu\nDescription...\n\n3. Titre du jeu\nDescription...\n\nAprès: question engageante. SANS EMOJI.";
 
   const gamesData = rawgGames.slice(0, 20).map((g: any) => ({
