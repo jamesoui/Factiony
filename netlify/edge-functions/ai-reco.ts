@@ -9,37 +9,36 @@ function jsonResponse(body: any, status = 200, corsHeaders: Record<string, strin
   });
 }
 
-// RAWG Tag IDs mapping
-const TAG_MAP: Record<string, number> = {
-  "coop": 7,
-  "coopératif": 7,
-  "cooperative": 7,
-  "multiplayer": 7906,
-  "multijoueur": 7906,
-  "solo": 3368,
-  "single-player": 3368,
-  "rpg": 5,
-  "action": 4,
-  "strategy": 10,
-  "stratégie": 10,
-  "adventure": 11,
-  "aventure": 11,
-  "puzzle": 25,
-  "shooter": 12,
-  "racing": 1,
-  "courses": 1,
-  "sports": 2,
-  "foot": 2,
-  "football": 2,
-  "soccer": 2,
-  "horror": 40,
-  "horror": 40,
-  "indie": 51,
-  "indépendant": 51,
-  "simulation": 14,
-  "sim": 14,
-  "fighting": 6,
-  "combat": 6,
+// RAWG Tag Slugs mapping
+const TAG_SLUGS: Record<string, string> = {
+  "coop": "co-op",
+  "coopératif": "co-op",
+  "cooperative": "co-op",
+  "multiplayer": "multiplayer",
+  "multijoueur": "multiplayer",
+  "solo": "singleplayer",
+  "single-player": "singleplayer",
+  "rpg": "rpg",
+  "action": "action",
+  "strategy": "strategy",
+  "stratégie": "strategy",
+  "adventure": "adventure",
+  "aventure": "adventure",
+  "puzzle": "puzzle",
+  "shooter": "shooter",
+  "racing": "racing",
+  "courses": "racing",
+  "sports": "sports",
+  "foot": "sports",
+  "football": "sports",
+  "soccer": "sports",
+  "horror": "horror",
+  "indie": "indie",
+  "indépendant": "indie",
+  "simulation": "simulation",
+  "sim": "simulation",
+  "fighting": "fighting",
+  "combat": "fighting",
 };
 
 export default async (request: Request) => {
@@ -217,11 +216,11 @@ async function handleRecommendation(query: string, userPseudo: string, rawgKey: 
     platformId = "4";
   }
 
-  // EXTRACT TAG IDS
-  let tagIds: string[] = [];
-  for (const [keyword, tagId] of Object.entries(TAG_MAP)) {
+  // EXTRACT TAG SLUGS
+  let tagSlugs: string[] = [];
+  for (const [keyword, tagSlug] of Object.entries(TAG_SLUGS)) {
     if (queryLower.includes(keyword)) {
-      tagIds.push(tagId.toString());
+      tagSlugs.push(tagSlug);
       break;
     }
   }
@@ -234,7 +233,7 @@ async function handleRecommendation(query: string, userPseudo: string, rawgKey: 
     .filter((w: string) => w.length > 2)
     .join(" ");
 
-  console.log("[AI-RECO] Platform:", platformId, "Tags:", tagIds, "Keywords:", searchKeywords);
+  console.log("[AI-RECO] Platform:", platformId, "Tags:", tagSlugs, "Keywords:", searchKeywords);
 
   // BUILD RAWG QUERY
   const rawgParams = new URLSearchParams();
@@ -246,8 +245,8 @@ async function handleRecommendation(query: string, userPseudo: string, rawgKey: 
     rawgParams.set("platforms", platformId);
   }
 
-  if (tagIds.length > 0) {
-    rawgParams.set("tags", tagIds.join(","));
+  if (tagSlugs.length > 0) {
+    rawgParams.set("tags", tagSlugs.join(","));
   }
 
   if (searchKeywords) {
