@@ -9,23 +9,6 @@ function jsonResponse(body: any, status = 200, corsHeaders: Record<string, strin
   });
 }
 
-function stripJsonCodeFences(raw: string): string {
-  const s = (raw ?? "").trim();
-  if (s.startsWith("```")) {
-    return s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-  }
-  return s;
-}
-
-function safeParseJson(raw: string) {
-  const cleaned = stripJsonCodeFences(raw);
-  try {
-    return { ok: true as const, value: JSON.parse(cleaned), cleaned };
-  } catch (e) {
-    return { ok: false as const, error: String(e), cleaned };
-  }
-}
-
 export default async (request: Request) => {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -65,10 +48,130 @@ export default async (request: Request) => {
     return jsonResponse({ error: "Missing query" }, 400, corsHeaders);
   }
 
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const queryLower = query.toLowerCase();
-
   console.log("[AI-RECO] Query:", query, "User:", userPseudo);
+
+  // ==================== GAMING GATE ====================
+  const gamingKeywords = [
+    "jeu", "game", "gaming", "play", "jouer", "console", "ps5", "xbox", "switch", "pc",
+    "coop", "multiplayer", "solo", "rpg", "action", "stratégie", "adventure", "puzzle",
+    "shooter", "racing", "horror", "indie", "boss", "level", "build", "strat", "stratégie",
+    "battre", "beat", "defeat", "skill", "technique", "playstation", "nintendo", "steam",
+    "elden ring", "baldur", "zelda", "mario", "fortnite", "valorant", "lol", "dota",
+    "fifa", "nba", "madden", "nfl", "football", "soccer", "esport", "competitive",
+    "farming", "grind", "quest", "mission", "achievement", "trailer", "gameplay", "walkthrough",
+  ];
+
+  const isGamingQuestion = gamingKeywords.some(word => queryLower.includes(word));
+
+  if (!isGamingQuestion) {
+    return jsonResponse(
+      {
+        query,
+        user_pseudo: userPseudo,
+        mode: "blocked",
+        answer: "Je suis spécialisé dans les jeux vidéo! Je peux t'aider à trouver des jeux, comprendre des stratégies, ou répondre à des questions gaming. Essaie: 'jeux coop ps5', 'comment battre melania', 'meilleurs RPG 2026'",
+      },
+      200,
+      corsHeaders
+    );
+  }
+
+  // ==================== DETECT MODE ====================
+  const gameplayKeywords = ["battre", "beat", "boss", "strat", "stratégie", "strategy", "build", "level up", "how to", "comment", "skill", "technique", "conseil", "tip", "trick", "farming", "grind", "walkthrough", "guide"];
+  const isGameplayQuestion = gameplayKeywords.some(word => queryLower.includes(word));
+
+  console.log("[AI-RECO] Mode:", isGameplayQuestion ? "GAMEPLAY" : "RECOMMENDATION");
+
+  if (isGameplayQuestion) {
+    return handleGameplayQuestion(query, userPseudo, MISTRAL_API_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, corsHeaders);
+  } else {
+    return handleRecommendation(query, userPseudo, RAWG_API_KEY, MISTRAL_API_KEY, BASE_URL, SUPABASE_URL, SUPABASE_ANON_KEY, corsHeaders);
+  }
+};
+
+async function handleGameplayQuestion(query: string, userPseudo: string, mistralKey: string, supabaseUrl: string, supabaseKey: string, corsHeaders: Record<string, string>) {
+  console.log("[AI-RECO] GAMEPLAY MODE");
+
+  const supabase = createClient(supabaseUrl, supabaseKey);
+
+  let factinyContext = "";
+  try {
+    const { data: comments } = await supabase
+      .from("game_comments")
+      .select("game_id, content, rating")
+      .limit(20);
+
+    if (comments && comments.length > 0) {
+      factinyContext = "Conseils communauté Factiony:\n" + comments.slice(0, 5).map((c: any) => c.content).join("\n");
+    }
+  } catch (e) {
+    console.error("[AI-RECO] Factiony fetch error:", e);
+  }
+
+  const systemPrompt = "Tu es Factiony AI, expert gaming. L'utilisateur pose une question GAMING (boss, build, stratégie, guide).\n\nAide avec:\n1. Conseils directs et utiles\n2. Stratégies concrètes\n3. Tips de la communauté\n4. Pas de blabla\n\nSi question est hors gaming, refuse poliment.";
+
+  const userPrompt = "Question: " + query + "\n\nContexte:\n" + factinyContext + "\n\nRéponds directement avec des conseils pratiques.";
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 40000);
+
+    const mistralRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
+      signal: controller.signal,
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + mistralKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "mistral-large-latest",
+        temperature: 0.7,
+        max_tokens: 800,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!mistralRes.ok) throw new Error("Mistral " + mistralRes.status);
+
+    const mistralJson = await mistralRes.json();
+    const response = mistralJson?.choices?.[0]?.message?.content ?? "";
+
+    return jsonResponse(
+      {
+        query,
+        user_pseudo: userPseudo,
+        mode: "gameplay",
+        answer: response,
+      },
+      200,
+      corsHeaders
+    );
+  } catch (e) {
+    console.error("[AI-RECO] Gameplay error:", e);
+    return jsonResponse(
+      {
+        query,
+        user_pseudo: userPseudo,
+        mode: "gameplay",
+        answer: "Désolé, je n'ai pas pu trouver une réponse. Essaie de reformuler ta question!",
+      },
+      200,
+      corsHeaders
+    );
+  }
+}
+
+async function handleRecommendation(query: string, userPseudo: string, rawgKey: string, mistralKey: string, baseUrl: string, supabaseUrl: string, supabaseKey: string, corsHeaders: Record<string, string>) {
+  console.log("[AI-RECO] RECOMMENDATION MODE");
+
+  const supabase = createClient(supabaseUrl, supabaseKey);
+  const queryLower = query.toLowerCase();
 
   let platformId = null;
   
@@ -83,28 +186,24 @@ export default async (request: Request) => {
   }
 
   let searchKeywords = queryLower
-    .replace(/ps5|playstation|xbox|switch|pc|sur|on|à|pour|jeux|game|games|this|that|the|a|an/gi, "")
+    .replace(/ps5|playstation|xbox|switch|pc|sur|on|à|pour|jeux|game|games|this|that|the|a|an|le|la|les|un|une|des|et/gi, "")
     .trim()
     .split(/\s+/)
     .filter((w: string) => w.length > 2)
-    .slice(0, 4)
     .join(" ");
 
   console.log("[AI-RECO] Platform:", platformId, "Keywords:", searchKeywords);
 
   const rawgParams = new URLSearchParams();
-  rawgParams.set("key", RAWG_API_KEY);
-  rawgParams.set("page_size", "80");
+  rawgParams.set("key", rawgKey);
+  rawgParams.set("page_size", "50");
   rawgParams.set("ordering", "-rating");
 
   if (platformId) {
     rawgParams.set("platforms", platformId);
   }
 
-  const featureWords = ["coop", "multiplayer", "solo", "rpg", "action", "strategy", "adventure", "puzzle", "shooter", "racing", "horror", "indie"];
-  const hasFeatureWords = featureWords.some(word => queryLower.includes(word));
-  
-  if (searchKeywords && !hasFeatureWords) {
+  if (searchKeywords) {
     rawgParams.set("search", searchKeywords);
   }
 
@@ -130,6 +229,7 @@ export default async (request: Request) => {
       {
         query,
         user_pseudo: userPseudo,
+        mode: "recommendation",
         recommendations: [],
         short_summary: noGameMsg,
         personal_message: noGameMsg,
@@ -151,45 +251,11 @@ export default async (request: Request) => {
         factinyDataMap[fg.name.toLowerCase()] = fg;
       });
     }
-
-    const [signalsRes, commentsRes] = await Promise.all([
-      supabase.from("game_signals").select("game_id, avg_rating, ratings_count"),
-      supabase.from("game_comments").select("game_id, content, rating"),
-    ]);
-
-    let gameSignalsMap: Record<string, any> = {};
-    let gameCommentsMap: Record<string, any[]> = {};
-
-    if (signalsRes.data) {
-      signalsRes.data.forEach((s: any) => {
-        gameSignalsMap[s.game_id] = s;
-      });
-    }
-
-    if (commentsRes.data) {
-      commentsRes.data.forEach((c: any) => {
-        if (!gameCommentsMap[c.game_id]) gameCommentsMap[c.game_id] = [];
-        gameCommentsMap[c.game_id].push(c);
-      });
-    }
-
-    rawgGames = rawgGames.map((game: any) => {
-      const factinyMatch = factinyDataMap[game.name.toLowerCase()];
-      if (factinyMatch) {
-        const signals = gameSignalsMap[factinyMatch.id];
-        return {
-          ...game,
-          factiony_rating: signals?.avg_rating,
-          factiony_ratings_count: signals?.ratings_count,
-        };
-      }
-      return game;
-    });
   } catch (e) {
-    console.error("[AI-RECO] Enrichment error:", e);
+    console.error("[AI-RECO] Factiony fetch error:", e);
   }
 
-  const systemPrompt = "Tu es Factiony AI, expert gaming.\n\nTu dois:\n1. Recommander les 3 meilleurs jeux basé sur: " + query + "\n2. Si demande COOP -> recommande UNIQUEMENT jeux coopératifs\n3. Si demande MULTIPLAYER -> recommande UNIQUEMENT jeux multiplayer\n4. Si plateforme -> recommande UNIQUEMENT cette plateforme\n5. Pour CHAQUE jeu: 1-2 phrases WHY (court et percutant)\n\nSTYLE:\n- Passionné, direct, sans emoji\n- Jamais de tableaux, jamais d'articles longs\n- Court, impactant\n- Engagement et naturel!";
+  const systemPrompt = "Tu es Factiony AI, expert gaming. Recommande les 3 MEILLEURS jeux basé sur: " + query + "\n\nRÈGLES STRICTES:\n- FOOT -> jeux de foot UNIQUEMENT\n- COOP -> coopératifs VRAIMENT\n- MULTIPLAYER -> multijoueur UNIQUEMENT\n- Plateforme -> celle demandée UNIQUEMENT\n\nSi rien ne match -> dis-le.\n\nSTYLE:\n- Court et direct\n- 1-2 lignes par jeu\n- Pas d'emoji\n- Question engageante à la fin";
 
   const gamesData = rawgGames.slice(0, 15).map((game: any) => ({
     id: game.id,
@@ -199,10 +265,9 @@ export default async (request: Request) => {
     platforms: (game.platforms || []).map((p: any) => p.platform.name).join(", "),
     rating: game.rating,
     released: game.released?.substring(0, 4),
-    factiony_rating: game.factiony_rating ? game.factiony_rating.toFixed(1) + "/5" : "—",
   }));
 
-  const userPromptText = "Demande: " + JSON.stringify(query) + "\n\nJeux trouvés:\n" + JSON.stringify(gamesData, null, 2) + "\n\nRecommande les 3 meilleurs (COURT pour chaque!), puis une question pour relancer la conversation.";
+  const userPrompt = "Demande: " + JSON.stringify(query) + "\n\nJeux trouvés (top rated):\n" + JSON.stringify(gamesData, null, 2) + "\n\nRecommande les 3 MEILLEURS qui correspondent vraiment. Puis une question.";
 
   try {
     const controller = new AbortController();
@@ -212,7 +277,7 @@ export default async (request: Request) => {
       signal: controller.signal,
       method: "POST",
       headers: {
-        Authorization: "Bearer " + MISTRAL_API_KEY,
+        Authorization: "Bearer " + mistralKey,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -221,7 +286,7 @@ export default async (request: Request) => {
         max_tokens: 1000,
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: userPromptText },
+          { role: "user", content: userPrompt },
         ],
       }),
     });
@@ -245,7 +310,7 @@ export default async (request: Request) => {
           slug: game.slug,
           title: game.name,
           why: genreStr + " (" + year + ") - " + game.rating + "/5",
-          url: BASE_URL + "/game/" + game.slug + "-" + game.id,
+          url: baseUrl + "/game/" + game.slug + "-" + game.id,
         });
         found++;
       }
@@ -259,7 +324,7 @@ export default async (request: Request) => {
           slug: g.slug,
           title: g.name,
           why: genreStr + " - " + g.rating + "/5",
-          url: BASE_URL + "/game/" + g.slug + "-" + g.id,
+          url: baseUrl + "/game/" + g.slug + "-" + g.id,
         };
       }));
     }
@@ -282,6 +347,7 @@ export default async (request: Request) => {
       {
         query,
         user_pseudo: userPseudo,
+        mode: "recommendation",
         recommendations: recommendations3,
         short_summary: summaryText,
         personal_message: questionText,
@@ -300,7 +366,7 @@ export default async (request: Request) => {
         slug: g.slug,
         title: g.name,
         why: genreStr ? genreStr + " - " + g.rating + "/5" : g.rating + "/5",
-        url: BASE_URL + "/game/" + g.slug + "-" + g.id,
+        url: baseUrl + "/game/" + g.slug + "-" + g.id,
       };
     });
 
@@ -316,6 +382,7 @@ export default async (request: Request) => {
       {
         query,
         user_pseudo: userPseudo,
+        mode: "recommendation",
         recommendations: recs,
         short_summary: summaryText,
         personal_message: questionText,
@@ -324,6 +391,6 @@ export default async (request: Request) => {
       corsHeaders
     );
   }
-};
+}
 
 export const config = { path: "/api/ai-reco" };
