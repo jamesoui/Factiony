@@ -9,6 +9,39 @@ function jsonResponse(body: any, status = 200, corsHeaders: Record<string, strin
   });
 }
 
+// RAWG Tag IDs mapping
+const TAG_MAP: Record<string, number> = {
+  "coop": 7,
+  "coopératif": 7,
+  "cooperative": 7,
+  "multiplayer": 7906,
+  "multijoueur": 7906,
+  "solo": 3368,
+  "single-player": 3368,
+  "rpg": 5,
+  "action": 4,
+  "strategy": 10,
+  "stratégie": 10,
+  "adventure": 11,
+  "aventure": 11,
+  "puzzle": 25,
+  "shooter": 12,
+  "racing": 1,
+  "courses": 1,
+  "sports": 2,
+  "foot": 2,
+  "football": 2,
+  "soccer": 2,
+  "horror": 40,
+  "horror": 40,
+  "indie": 51,
+  "indépendant": 51,
+  "simulation": 14,
+  "sim": 14,
+  "fighting": 6,
+  "combat": 6,
+};
+
 export default async (request: Request) => {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -55,9 +88,8 @@ export default async (request: Request) => {
   const gamingKeywords = [
     "jeu", "game", "gaming", "play", "jouer", "console", "ps5", "xbox", "switch", "pc",
     "coop", "multiplayer", "solo", "rpg", "action", "stratégie", "adventure", "puzzle",
-    "shooter", "racing", "horror", "indie", "boss", "level", "build", "strat", "stratégie",
+    "shooter", "racing", "horror", "indie", "boss", "level", "build", "strat",
     "battre", "beat", "defeat", "skill", "technique", "playstation", "nintendo", "steam",
-    "elden ring", "baldur", "zelda", "mario", "fortnite", "valorant", "lol", "dota",
     "fifa", "nba", "madden", "nfl", "football", "soccer", "esport", "competitive",
     "farming", "grind", "quest", "mission", "achievement", "trailer", "gameplay", "walkthrough",
   ];
@@ -70,7 +102,7 @@ export default async (request: Request) => {
         query,
         user_pseudo: userPseudo,
         mode: "blocked",
-        answer: "Je suis spécialisé dans les jeux vidéo! Je peux t'aider à trouver des jeux, comprendre des stratégies, ou répondre à des questions gaming. Essaie: 'jeux coop ps5', 'comment battre melania', 'meilleurs RPG 2026'",
+        answer: "Je suis spécialisé dans les jeux vidéo! Je peux t'aider à trouver des jeux, comprendre des stratégies, ou répondre à des questions gaming. Essaie: 'jeux coop ps5', 'comment battre melania', 'meilleurs RPG'",
       },
       200,
       corsHeaders
@@ -159,7 +191,7 @@ async function handleGameplayQuestion(query: string, userPseudo: string, mistral
         query,
         user_pseudo: userPseudo,
         mode: "gameplay",
-        answer: "Désolé, je n'ai pas pu trouver une réponse. Essaie de reformuler ta question!",
+        answer: "Désolé, je n'ai pas pu trouver une réponse. Essaie de reformuler!",
       },
       200,
       corsHeaders
@@ -173,8 +205,8 @@ async function handleRecommendation(query: string, userPseudo: string, rawgKey: 
   const supabase = createClient(supabaseUrl, supabaseKey);
   const queryLower = query.toLowerCase();
 
+  // EXTRACT PLATFORM
   let platformId = null;
-  
   if (queryLower.includes("ps5") || queryLower.includes("playstation 5")) {
     platformId = "187";
   } else if (queryLower.includes("xbox")) {
@@ -185,15 +217,26 @@ async function handleRecommendation(query: string, userPseudo: string, rawgKey: 
     platformId = "4";
   }
 
+  // EXTRACT TAG IDS
+  let tagIds: string[] = [];
+  for (const [keyword, tagId] of Object.entries(TAG_MAP)) {
+    if (queryLower.includes(keyword)) {
+      tagIds.push(tagId.toString());
+      break;
+    }
+  }
+
+  // EXTRACT SEARCH KEYWORDS (for non-feature queries like "Baldur's Gate")
   let searchKeywords = queryLower
-    .replace(/ps5|playstation|xbox|switch|pc|sur|on|à|pour|jeux|game|games|this|that|the|a|an|le|la|les|un|une|des|et/gi, "")
+    .replace(/ps5|playstation|xbox|switch|pc|sur|on|à|pour|jeux|game|games|this|that|the|a|an|le|la|les|un|une|des|et|coop|multiplayer|solo|rpg|action|strategy|adventure|puzzle|shooter|racing|horror|indie/gi, "")
     .trim()
     .split(/\s+/)
     .filter((w: string) => w.length > 2)
     .join(" ");
 
-  console.log("[AI-RECO] Platform:", platformId, "Keywords:", searchKeywords);
+  console.log("[AI-RECO] Platform:", platformId, "Tags:", tagIds, "Keywords:", searchKeywords);
 
+  // BUILD RAWG QUERY
   const rawgParams = new URLSearchParams();
   rawgParams.set("key", rawgKey);
   rawgParams.set("page_size", "50");
@@ -203,10 +246,15 @@ async function handleRecommendation(query: string, userPseudo: string, rawgKey: 
     rawgParams.set("platforms", platformId);
   }
 
+  if (tagIds.length > 0) {
+    rawgParams.set("tags", tagIds.join(","));
+  }
+
   if (searchKeywords) {
     rawgParams.set("search", searchKeywords);
   }
 
+  // CALL RAWG
   let rawgGames: any[] = [];
   try {
     const rawgUrl = "https://api.rawg.io/api/games?" + rawgParams.toString();
@@ -239,6 +287,7 @@ async function handleRecommendation(query: string, userPseudo: string, rawgKey: 
     );
   }
 
+  // ENRICH WITH FACTIONY
   let factinyDataMap: Record<string, any> = {};
   try {
     const { data: factinyGames } = await supabase
@@ -255,7 +304,8 @@ async function handleRecommendation(query: string, userPseudo: string, rawgKey: 
     console.error("[AI-RECO] Factiony fetch error:", e);
   }
 
-  const systemPrompt = "Tu es Factiony AI, expert gaming. Recommande les 3 MEILLEURS jeux basé sur: " + query + "\n\nRÈGLES STRICTES:\n- FOOT -> jeux de foot UNIQUEMENT\n- COOP -> coopératifs VRAIMENT\n- MULTIPLAYER -> multijoueur UNIQUEMENT\n- Plateforme -> celle demandée UNIQUEMENT\n\nSi rien ne match -> dis-le.\n\nSTYLE:\n- Court et direct\n- 1-2 lignes par jeu\n- Pas d'emoji\n- Question engageante à la fin";
+  // PREPARE DATA FOR MISTRAL
+  const systemPrompt = "Tu es Factiony AI, expert gaming. Recommande les 3 MEILLEURS jeux.\n\nRÈGLES:\n- Si demande COOP -> uniquement coopératifs\n- Si demande MULTIPLAYER -> uniquement multijoueur\n- Si demande plateforme -> uniquement celle-ci\n- Si rien ne match -> dis-le honnêtement\n\nSTYLE: Court, direct, pas d'emoji, question engageante à la fin.";
 
   const gamesData = rawgGames.slice(0, 15).map((game: any) => ({
     id: game.id,
@@ -267,7 +317,7 @@ async function handleRecommendation(query: string, userPseudo: string, rawgKey: 
     released: game.released?.substring(0, 4),
   }));
 
-  const userPrompt = "Demande: " + JSON.stringify(query) + "\n\nJeux trouvés (top rated):\n" + JSON.stringify(gamesData, null, 2) + "\n\nRecommande les 3 MEILLEURS qui correspondent vraiment. Puis une question.";
+  const userPrompt = "Demande: " + JSON.stringify(query) + "\n\nJeux trouvés (top rated):\n" + JSON.stringify(gamesData, null, 2) + "\n\nRecommande les 3 MEILLEURS. Puis une question engageante.";
 
   try {
     const controller = new AbortController();
@@ -298,6 +348,7 @@ async function handleRecommendation(query: string, userPseudo: string, rawgKey: 
     const mistralJson = await mistralRes.json();
     const raw = mistralJson?.choices?.[0]?.message?.content ?? "";
 
+    // EXTRACT RECOMMENDED GAMES
     const recommendations: any[] = [];
     let found = 0;
     for (const game of rawgGames) {
