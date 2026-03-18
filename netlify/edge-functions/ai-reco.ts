@@ -9,36 +9,35 @@ function jsonResponse(body: any, status = 200, corsHeaders: Record<string, strin
   });
 }
 
-// RAWG Tag Slugs mapping
-const TAG_SLUGS: Record<string, string> = {
-  "coop": "co-op",
-  "coopératif": "co-op",
-  "cooperative": "co-op",
-  "multiplayer": "multiplayer",
-  "multijoueur": "multiplayer",
-  "solo": "singleplayer",
-  "single-player": "singleplayer",
-  "rpg": "rpg",
-  "action": "action",
-  "strategy": "strategy",
-  "stratégie": "strategy",
-  "adventure": "adventure",
-  "aventure": "adventure",
-  "puzzle": "puzzle",
-  "shooter": "shooter",
-  "racing": "racing",
-  "courses": "racing",
-  "sports": "sports",
-  "foot": "sports",
-  "football": "sports",
-  "soccer": "sports",
-  "horror": "horror",
-  "indie": "indie",
-  "indépendant": "indie",
-  "simulation": "simulation",
-  "sim": "simulation",
-  "fighting": "fighting",
-  "combat": "fighting",
+// RAWG Tag IDs - THESE WORK
+const TAG_IDS: Record<string, number> = {
+  "coop": 7,
+  "coopératif": 7,
+  "cooperative": 7,
+  "multiplayer": 7906,
+  "multijoueur": 7906,
+  "solo": 3368,
+  "single-player": 3368,
+  "rpg": 5,
+  "action": 4,
+  "strategy": 10,
+  "stratégie": 10,
+  "adventure": 11,
+  "aventure": 11,
+  "puzzle": 25,
+  "shooter": 12,
+  "racing": 1,
+  "courses": 1,
+  "sports": 2,
+  "foot": 2,
+  "football": 2,
+  "soccer": 2,
+  "horror": 40,
+  "indie": 51,
+  "indépendant": 51,
+  "simulation": 14,
+  "fighting": 6,
+  "combat": 6,
 };
 
 export default async (request: Request) => {
@@ -83,36 +82,23 @@ export default async (request: Request) => {
   const queryLower = query.toLowerCase();
   console.log("[AI-RECO] Query:", query, "User:", userPseudo);
 
-  // ==================== GAMING GATE ====================
+  // GAMING GATE
   const gamingKeywords = [
     "jeu", "game", "gaming", "play", "jouer", "console", "ps5", "xbox", "switch", "pc",
     "coop", "multiplayer", "solo", "rpg", "action", "stratégie", "adventure", "puzzle",
     "shooter", "racing", "horror", "indie", "boss", "level", "build", "strat",
     "battre", "beat", "defeat", "skill", "technique", "playstation", "nintendo", "steam",
-    "fifa", "nba", "madden", "nfl", "football", "soccer", "esport", "competitive",
-    "farming", "grind", "quest", "mission", "achievement", "trailer", "gameplay", "walkthrough",
   ];
 
   const isGamingQuestion = gamingKeywords.some(word => queryLower.includes(word));
 
   if (!isGamingQuestion) {
-    return jsonResponse(
-      {
-        query,
-        user_pseudo: userPseudo,
-        mode: "blocked",
-        answer: "Je suis spécialisé dans les jeux vidéo! Je peux t'aider à trouver des jeux, comprendre des stratégies, ou répondre à des questions gaming. Essaie: 'jeux coop ps5', 'comment battre melania', 'meilleurs RPG'",
-      },
-      200,
-      corsHeaders
-    );
+    return jsonResponse({ query, user_pseudo: userPseudo, mode: "blocked", answer: "Je suis spécialisé dans les jeux vidéo!" }, 200, corsHeaders);
   }
 
-  // ==================== DETECT MODE ====================
-  const gameplayKeywords = ["battre", "beat", "boss", "strat", "stratégie", "strategy", "build", "level up", "how to", "comment", "skill", "technique", "conseil", "tip", "trick", "farming", "grind", "walkthrough", "guide"];
+  // MODE DETECTION
+  const gameplayKeywords = ["battre", "beat", "boss", "strat", "stratégie", "strategy", "build", "comment", "skill", "technique", "conseil", "tip", "trick", "guide"];
   const isGameplayQuestion = gameplayKeywords.some(word => queryLower.includes(word));
-
-  console.log("[AI-RECO] Mode:", isGameplayQuestion ? "GAMEPLAY" : "RECOMMENDATION");
 
   if (isGameplayQuestion) {
     return handleGameplayQuestion(query, userPseudo, MISTRAL_API_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, corsHeaders);
@@ -122,39 +108,15 @@ export default async (request: Request) => {
 };
 
 async function handleGameplayQuestion(query: string, userPseudo: string, mistralKey: string, supabaseUrl: string, supabaseKey: string, corsHeaders: Record<string, string>) {
-  console.log("[AI-RECO] GAMEPLAY MODE");
-
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  let factinyContext = "";
-  try {
-    const { data: comments } = await supabase
-      .from("game_comments")
-      .select("game_id, content, rating")
-      .limit(20);
-
-    if (comments && comments.length > 0) {
-      factinyContext = "Conseils communauté Factiony:\n" + comments.slice(0, 5).map((c: any) => c.content).join("\n");
-    }
-  } catch (e) {
-    console.error("[AI-RECO] Factiony fetch error:", e);
-  }
-
-  const systemPrompt = "Tu es Factiony AI, expert gaming. L'utilisateur pose une question GAMING (boss, build, stratégie, guide).\n\nAide avec:\n1. Conseils directs et utiles\n2. Stratégies concrètes\n3. Tips de la communauté\n4. Pas de blabla\n\nSi question est hors gaming, refuse poliment.";
-
-  const userPrompt = "Question: " + query + "\n\nContexte:\n" + factinyContext + "\n\nRéponds directement avec des conseils pratiques.";
+  const systemPrompt = "Tu es Factiony AI, expert gaming. Réponds à des questions gaming (boss, build, strat). Conseils directs et utiles.";
+  const userPrompt = "Question: " + query + "\nRéponds directement.";
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 40000);
-
     const mistralRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
-      signal: controller.signal,
       method: "POST",
-      headers: {
-        Authorization: "Bearer " + mistralKey,
-        "Content-Type": "application/json",
-      },
+      headers: { Authorization: "Bearer " + mistralKey, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "mistral-large-latest",
         temperature: 0.7,
@@ -166,169 +128,88 @@ async function handleGameplayQuestion(query: string, userPseudo: string, mistral
       }),
     });
 
-    clearTimeout(timeoutId);
-
-    if (!mistralRes.ok) throw new Error("Mistral " + mistralRes.status);
-
+    if (!mistralRes.ok) throw new Error("Mistral error");
     const mistralJson = await mistralRes.json();
     const response = mistralJson?.choices?.[0]?.message?.content ?? "";
 
-    return jsonResponse(
-      {
-        query,
-        user_pseudo: userPseudo,
-        mode: "gameplay",
-        answer: response,
-      },
-      200,
-      corsHeaders
-    );
+    return jsonResponse({ query, user_pseudo: userPseudo, mode: "gameplay", answer: response }, 200, corsHeaders);
   } catch (e) {
-    console.error("[AI-RECO] Gameplay error:", e);
-    return jsonResponse(
-      {
-        query,
-        user_pseudo: userPseudo,
-        mode: "gameplay",
-        answer: "Désolé, je n'ai pas pu trouver une réponse. Essaie de reformuler!",
-      },
-      200,
-      corsHeaders
-    );
+    return jsonResponse({ query, user_pseudo: userPseudo, mode: "gameplay", answer: "Erreur. Réessaie." }, 200, corsHeaders);
   }
 }
 
 async function handleRecommendation(query: string, userPseudo: string, rawgKey: string, mistralKey: string, baseUrl: string, supabaseUrl: string, supabaseKey: string, corsHeaders: Record<string, string>) {
-  console.log("[AI-RECO] RECOMMENDATION MODE");
-
-  const supabase = createClient(supabaseUrl, supabaseKey);
   const queryLower = query.toLowerCase();
 
-  // EXTRACT PLATFORM
+  // Platform detection
   let platformId = null;
-  if (queryLower.includes("ps5") || queryLower.includes("playstation 5")) {
-    platformId = "187";
-  } else if (queryLower.includes("xbox")) {
-    platformId = "186";
-  } else if (queryLower.includes("switch")) {
-    platformId = "7";
-  } else if (queryLower.includes("pc")) {
-    platformId = "4";
-  }
+  if (queryLower.includes("ps5")) platformId = "187";
+  else if (queryLower.includes("xbox")) platformId = "186";
+  else if (queryLower.includes("switch")) platformId = "7";
+  else if (queryLower.includes("pc")) platformId = "4";
 
-  // EXTRACT TAG SLUGS
-  let tagSlugs: string[] = [];
-  for (const [keyword, tagSlug] of Object.entries(TAG_SLUGS)) {
+  // Extract TAG ID
+  let tagId = null;
+  for (const [keyword, id] of Object.entries(TAG_IDS)) {
     if (queryLower.includes(keyword)) {
-      tagSlugs.push(tagSlug);
+      tagId = id;
       break;
     }
   }
 
-  // EXTRACT SEARCH KEYWORDS (for non-feature queries like "Baldur's Gate")
+  // Clean search keywords
   let searchKeywords = queryLower
-    .replace(/ps5|playstation|xbox|switch|pc|sur|on|à|pour|jeux|game|games|this|that|the|a|an|le|la|les|un|une|des|et|coop|multiplayer|solo|rpg|action|strategy|adventure|puzzle|shooter|racing|horror|indie/gi, "")
-    .trim()
-    .split(/\s+/)
-    .filter((w: string) => w.length > 2)
-    .join(" ");
+    .replace(/ps5|playstation|xbox|switch|pc|sur|on|à|pour|jeux|game|games|the|a|an|le|la|les|un|une|des|et|coop|multiplayer|solo|rpg|action|strategy|adventure|puzzle|shooter|racing|horror|indie/gi, "")
+    .trim();
 
-  console.log("[AI-RECO] Platform:", platformId, "Tags:", tagSlugs, "Keywords:", searchKeywords);
+  console.log("[AI-RECO] Platform:", platformId, "Tag ID:", tagId, "Search:", searchKeywords);
 
-  // BUILD RAWG QUERY
+  // RAWG Query
   const rawgParams = new URLSearchParams();
   rawgParams.set("key", rawgKey);
   rawgParams.set("page_size", "50");
   rawgParams.set("ordering", "-rating");
+  if (platformId) rawgParams.set("platforms", platformId);
+  if (tagId) rawgParams.set("tags", tagId.toString());
+  if (searchKeywords) rawgParams.set("search", searchKeywords);
 
-  if (platformId) {
-    rawgParams.set("platforms", platformId);
-  }
-
-  if (tagSlugs.length > 0) {
-    rawgParams.set("tags", tagSlugs.join(","));
-  }
-
-  if (searchKeywords) {
-    rawgParams.set("search", searchKeywords);
-  }
-
-  // CALL RAWG
   let rawgGames: any[] = [];
   try {
     const rawgUrl = "https://api.rawg.io/api/games?" + rawgParams.toString();
     console.log("[AI-RECO] RAWG URL:", rawgUrl);
-    
     const rawgRes = await fetch(rawgUrl);
-
     if (rawgRes.ok) {
       const rawgData = await rawgRes.json();
       rawgGames = rawgData.results || [];
       console.log("[AI-RECO] RAWG returned", rawgGames.length, "games");
     }
   } catch (e) {
-    console.error("[AI-RECO] RAWG fetch error:", e);
+    console.error("[AI-RECO] RAWG error:", e);
   }
 
   if (rawgGames.length === 0) {
-    const noGameMsg = "Désolé, je n'ai pas trouvé de jeux. Essaie avec d'autres mots-clés!";
-    return jsonResponse(
-      {
-        query,
-        user_pseudo: userPseudo,
-        mode: "recommendation",
-        recommendations: [],
-        short_summary: noGameMsg,
-        personal_message: noGameMsg,
-      },
-      200,
-      corsHeaders
-    );
+    return jsonResponse({
+      query, user_pseudo: userPseudo, mode: "recommendation",
+      recommendations: [],
+      short_summary: "Aucun jeu trouvé. Essaie d'autres mots-clés!",
+      personal_message: "Aucun jeu trouvé.",
+    }, 200, corsHeaders);
   }
 
-  // ENRICH WITH FACTIONY
-  let factinyDataMap: Record<string, any> = {};
-  try {
-    const { data: factinyGames } = await supabase
-      .from("games")
-      .select("id, name, slug")
-      .limit(500);
+  const systemPrompt = "Tu es Factiony AI. Recommande EXACTEMENT 3 jeux.\n\nFormat:\n1. Titre du jeu\nDescription (2-3 lignes) pourquoi ça match\n\n2. Titre du jeu\nDescription...\n\n3. Titre du jeu\nDescription...\n\nAprès: question engageante. SANS EMOJI.";
 
-    if (factinyGames) {
-      factinyGames.forEach((fg: any) => {
-        factinyDataMap[fg.name.toLowerCase()] = fg;
-      });
-    }
-  } catch (e) {
-    console.error("[AI-RECO] Factiony fetch error:", e);
-  }
-
-  // PREPARE DATA FOR MISTRAL
-  const systemPrompt = "Tu es Factiony AI, expert gaming. Recommande EXACTEMENT 3 jeux.\n\nFORMAT STRICT:\n1. Titre du jeu\nDescription courte (2-3 lignes) POURQUOI ce jeu match\n\n2. Titre du jeu\nDescription courte (2-3 lignes) POURQUOI ce jeu match\n\n3. Titre du jeu\nDescription courte (2-3 lignes) POURQUOI ce jeu match\n\nAprès: une question engageante.\n\nRÈGLES:\n- COOP -> uniquement coopératifs\n- MULTIPLAYER -> uniquement multijoueur\n- Plateforme -> celle demandée UNIQUEMENT\n- Si rien ne match -> dis-le\n- SANS EMOJI";
-
-  const gamesData = rawgGames.slice(0, 15).map((game: any) => ({
-    id: game.id,
-    name: game.name,
-    slug: game.slug,
-    genres: (game.genres || []).map((g: any) => g.name).join(", "),
-    platforms: (game.platforms || []).map((p: any) => p.platform.name).join(", "),
-    rating: game.rating,
-    released: game.released?.substring(0, 4),
+  const gamesData = rawgGames.slice(0, 20).map((g: any) => ({
+    name: g.name,
+    genres: (g.genres || []).map((x: any) => x.name).join(", "),
+    rating: g.rating,
   }));
 
-  const userPrompt = "Demande: " + JSON.stringify(query) + "\n\nJeux trouvés (top rated):\n" + JSON.stringify(gamesData, null, 2) + "\n\nRecommande EXACTEMENT 3 jeux avec descriptions claires. Puis une question engageante.";
+  const userPrompt = "Demande: " + query + "\n\nJeux (top rated):\n" + JSON.stringify(gamesData, null, 2) + "\n\nRecommande 3 jeux avec descriptions claires. Puis une question.";
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 40000);
-
     const mistralRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
-      signal: controller.signal,
       method: "POST",
-      headers: {
-        Authorization: "Bearer " + mistralKey,
-        "Content-Type": "application/json",
-      },
+      headers: { Authorization: "Bearer " + mistralKey, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "mistral-large-latest",
         temperature: 0.8,
@@ -340,30 +221,20 @@ async function handleRecommendation(query: string, userPseudo: string, rawgKey: 
       }),
     });
 
-    clearTimeout(timeoutId);
-
-    if (!mistralRes.ok) throw new Error("Mistral " + mistralRes.status);
-
+    if (!mistralRes.ok) throw new Error("Mistral error");
     const mistralJson = await mistralRes.json();
     const raw = mistralJson?.choices?.[0]?.message?.content ?? "";
 
-    // EXTRACT RECOMMENDED GAMES WITH DESCRIPTIONS
+    // Extract 3 games
     const recommendations: any[] = [];
-    let found = 0;
-    
-    // Split response into lines to find game mentions
     const lines = raw.split("\n");
     let currentGame = null;
     let currentDescription = "";
+    let found = 0;
     
     for (const line of lines) {
       const trimmed = line.trim();
-      
-      // Look for game names in RAWG database
-      const gameMatch = rawgGames.find(g => 
-        trimmed.toLowerCase().includes(g.name.toLowerCase()) && 
-        trimmed.length < 100 // Likely a title line
-      );
+      const gameMatch = rawgGames.find(g => trimmed.toLowerCase().includes(g.name.toLowerCase()) && trimmed.length < 100);
       
       if (gameMatch && found < 3) {
         if (currentGame && currentDescription) {
@@ -371,111 +242,71 @@ async function handleRecommendation(query: string, userPseudo: string, rawgKey: 
             slug: currentGame.slug,
             title: currentGame.name,
             summary: currentDescription.trim(),
-            why: (currentGame.genres || []).map((g: any) => g.name).slice(0, 2).join(", ") + " (" + (currentGame.released?.substring(0, 4) || "TBA") + ") - " + currentGame.rating + "/5",
+            why: (currentGame.genres || []).slice(0, 2).map((x: any) => typeof x === "string" ? x : x.name).join(", ") + " - " + currentGame.rating + "/5",
             url: baseUrl + "/game/" + currentGame.slug + "-" + currentGame.id,
           });
-          currentDescription = "";
           found++;
+          currentDescription = "";
         }
         currentGame = gameMatch;
-      } else if (currentGame && trimmed.length > 10 && !trimmed.includes("?") && found < 3) {
-        // Accumulate description lines
+      } else if (currentGame && trimmed.length > 5 && !trimmed.includes("?") && found < 3) {
         currentDescription += (currentDescription ? " " : "") + trimmed;
       }
     }
     
-    // Add last game
     if (currentGame && currentDescription && found < 3) {
       recommendations.push({
         slug: currentGame.slug,
         title: currentGame.name,
         summary: currentDescription.trim(),
-        why: (currentGame.genres || []).map((g: any) => g.name).slice(0, 2).join(", ") + " (" + (currentGame.released?.substring(0, 4) || "TBA") + ") - " + currentGame.rating + "/5",
+        why: (currentGame.genres || []).slice(0, 2).map((x: any) => typeof x === "string" ? x : x.name).join(", ") + " - " + currentGame.rating + "/5",
         url: baseUrl + "/game/" + currentGame.slug + "-" + currentGame.id,
       });
     }
 
-    // Fallback if extraction failed
-    if (recommendations.length === 0) {
-      recommendations.push(...rawgGames.slice(0, 3).map((g: any) => {
-        const genreArr = (g.genres || []) as any[];
-        const genreStr = genreArr.map((gen: any) => typeof gen === "string" ? gen : gen.name).slice(0, 2).join(", ");
-        return {
-          slug: g.slug,
-          title: g.name,
-          summary: genreStr + " game avec une bonne communauté.",
-          why: genreStr + " - " + g.rating + "/5",
-          url: baseUrl + "/game/" + g.slug + "-" + g.id,
-        };
-      }));
-    }
-
-    const recommendations3 = recommendations.slice(0, 3);
-
-    let summaryText = "";
-    recommendations3.forEach((r: any, i: number) => {
-      summaryText += r.title + " (" + r.why + ")";
-      if (i < recommendations3.length - 1) summaryText += " / ";
-    });
-
-    // Extract last question or sentence
-    let questionText = "Lequel de ces trois te tente?";
-    const sentences = raw.split(/[.!?]+/).filter((s: string) => s.trim().length > 0);
-    if (sentences.length > 0) {
-      const lastSentence = sentences[sentences.length - 1].trim();
-      if (lastSentence.length > 5 && lastSentence.length < 200) {
-        questionText = lastSentence + "?";
-      }
-    }
-
-    return jsonResponse(
-      {
-        query,
-        user_pseudo: userPseudo,
-        mode: "recommendation",
-        recommendations: recommendations3,
-        short_summary: summaryText,
-        personal_message: questionText,
-      },
-      200,
-      corsHeaders
-    );
-  } catch (e) {
-    console.error("[AI-RECO] Error:", e);
-    const top3 = rawgGames.slice(0, 3);
-    
-    const recs = top3.map((g: any) => {
-      const genreArr = (g.genres || []) as any[];
-      const genreStr = genreArr.map((gen: any) => typeof gen === "string" ? gen : gen.name).slice(0, 2).join(", ");
-      return {
+    if (recommendations.length < 3) {
+      const missing = 3 - recommendations.length;
+      recommendations.push(...rawgGames.slice(recommendations.length, recommendations.length + missing).map((g: any) => ({
         slug: g.slug,
         title: g.name,
-        summary: genreStr + " game recommandé par la communauté Factiony.",
-        why: genreStr ? genreStr + " - " + g.rating + "/5" : g.rating + "/5",
+        summary: (g.genres || []).slice(0, 2).map((x: any) => typeof x === "string" ? x : x.name).join(", "),
+        why: (g.genres || []).slice(0, 2).map((x: any) => typeof x === "string" ? x : x.name).join(", ") + " - " + g.rating + "/5",
         url: baseUrl + "/game/" + g.slug + "-" + g.id,
-      };
-    });
+      })));
+    }
 
-    let summaryText = "";
-    recs.forEach((r: any, i: number) => {
-      summaryText += r.title + " (" + r.why + ")";
-      if (i < recs.length - 1) summaryText += " / ";
-    });
-
-    let questionText = "Lequel de ces trois te tente?";
+    const recs = recommendations.slice(0, 3);
+    let summaryText = recs.map(r => r.title + " (" + r.why + ")").join(" / ");
     
-    return jsonResponse(
-      {
-        query,
-        user_pseudo: userPseudo,
-        mode: "recommendation",
-        recommendations: recs,
-        short_summary: summaryText,
-        personal_message: questionText,
-      },
-      200,
-      corsHeaders
-    );
+    let questionText = "Lequel te tente?";
+    const sentences = raw.split(/[.!?]+/).filter((s: string) => s.trim().length > 0);
+    if (sentences.length > 0) {
+      const last = sentences[sentences.length - 1].trim();
+      if (last.length > 5 && last.length < 150) questionText = last + "?";
+    }
+
+    return jsonResponse({
+      query, user_pseudo: userPseudo, mode: "recommendation",
+      recommendations: recs,
+      short_summary: summaryText,
+      personal_message: questionText,
+    }, 200, corsHeaders);
+  } catch (e) {
+    console.error("[AI-RECO] Mistral error:", e);
+    const top3 = rawgGames.slice(0, 3).map((g: any) => ({
+      slug: g.slug,
+      title: g.name,
+      summary: (g.genres || []).slice(0, 2).map((x: any) => typeof x === "string" ? x : x.name).join(", "),
+      why: (g.genres || []).slice(0, 2).map((x: any) => typeof x === "string" ? x : x.name).join(", ") + " - " + g.rating + "/5",
+      url: baseUrl + "/game/" + g.slug + "-" + g.id,
+    }));
+    
+    return jsonResponse({
+      query, user_pseudo: userPseudo, mode: "recommendation",
+      recommendations: top3,
+      short_summary: top3.map(r => r.title + " (" + r.why + ")").join(" / "),
+      personal_message: "Lequel te tente?",
+    }, 200, corsHeaders);
   }
 }
 
