@@ -304,7 +304,7 @@ async function handleRecommendation(query: string, userPseudo: string, rawgKey: 
   }
 
   // PREPARE DATA FOR MISTRAL
-  const systemPrompt = "Tu es Factiony AI, expert gaming. Recommande les 3 MEILLEURS jeux.\n\nRÈGLES:\n- Si demande COOP -> uniquement coopératifs\n- Si demande MULTIPLAYER -> uniquement multijoueur\n- Si demande plateforme -> uniquement celle-ci\n- Si rien ne match -> dis-le honnêtement\n\nSTYLE: Court, direct, pas d'emoji, question engageante à la fin.";
+  const systemPrompt = "Tu es Factiony AI, expert gaming. Recommande EXACTEMENT 3 jeux.\n\nFORMAT STRICT:\n1. Titre du jeu\nDescription courte (2-3 lignes) POURQUOI ce jeu match\n\n2. Titre du jeu\nDescription courte (2-3 lignes) POURQUOI ce jeu match\n\n3. Titre du jeu\nDescription courte (2-3 lignes) POURQUOI ce jeu match\n\nAprès: une question engageante.\n\nRÈGLES:\n- COOP -> uniquement coopératifs\n- MULTIPLAYER -> uniquement multijoueur\n- Plateforme -> celle demandée UNIQUEMENT\n- Si rien ne match -> dis-le\n- SANS EMOJI";
 
   const gamesData = rawgGames.slice(0, 15).map((game: any) => ({
     id: game.id,
@@ -316,7 +316,7 @@ async function handleRecommendation(query: string, userPseudo: string, rawgKey: 
     released: game.released?.substring(0, 4),
   }));
 
-  const userPrompt = "Demande: " + JSON.stringify(query) + "\n\nJeux trouvés (top rated):\n" + JSON.stringify(gamesData, null, 2) + "\n\nRecommande les 3 MEILLEURS. Puis une question engageante.";
+  const userPrompt = "Demande: " + JSON.stringify(query) + "\n\nJeux trouvés (top rated):\n" + JSON.stringify(gamesData, null, 2) + "\n\nRecommande EXACTEMENT 3 jeux avec descriptions claires. Puis une question engageante.";
 
   try {
     const controller = new AbortController();
@@ -347,25 +347,55 @@ async function handleRecommendation(query: string, userPseudo: string, rawgKey: 
     const mistralJson = await mistralRes.json();
     const raw = mistralJson?.choices?.[0]?.message?.content ?? "";
 
-    // EXTRACT RECOMMENDED GAMES
+    // EXTRACT RECOMMENDED GAMES WITH DESCRIPTIONS
     const recommendations: any[] = [];
     let found = 0;
-    for (const game of rawgGames) {
-      if (found >= 3) break;
-      if (raw.toLowerCase().includes(game.name.toLowerCase())) {
-        const genreArr = (game.genres || []) as any[];
-        const genreStr = genreArr.map((g: any) => typeof g === "string" ? g : g.name).slice(0, 2).join(", ");
-        const year = game.released?.substring(0, 4) || "TBA";
-        recommendations.push({
-          slug: game.slug,
-          title: game.name,
-          why: genreStr + " (" + year + ") - " + game.rating + "/5",
-          url: baseUrl + "/game/" + game.slug + "-" + game.id,
-        });
-        found++;
+    
+    // Split response into lines to find game mentions
+    const lines = raw.split("\n");
+    let currentGame = null;
+    let currentDescription = "";
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      
+      // Look for game names in RAWG database
+      const gameMatch = rawgGames.find(g => 
+        trimmed.toLowerCase().includes(g.name.toLowerCase()) && 
+        trimmed.length < 100 // Likely a title line
+      );
+      
+      if (gameMatch && found < 3) {
+        if (currentGame && currentDescription) {
+          recommendations.push({
+            slug: currentGame.slug,
+            title: currentGame.name,
+            summary: currentDescription.trim(),
+            why: (currentGame.genres || []).map((g: any) => g.name).slice(0, 2).join(", ") + " (" + (currentGame.released?.substring(0, 4) || "TBA") + ") - " + currentGame.rating + "/5",
+            url: baseUrl + "/game/" + currentGame.slug + "-" + currentGame.id,
+          });
+          currentDescription = "";
+          found++;
+        }
+        currentGame = gameMatch;
+      } else if (currentGame && trimmed.length > 10 && !trimmed.includes("?") && found < 3) {
+        // Accumulate description lines
+        currentDescription += (currentDescription ? " " : "") + trimmed;
       }
     }
+    
+    // Add last game
+    if (currentGame && currentDescription && found < 3) {
+      recommendations.push({
+        slug: currentGame.slug,
+        title: currentGame.name,
+        summary: currentDescription.trim(),
+        why: (currentGame.genres || []).map((g: any) => g.name).slice(0, 2).join(", ") + " (" + (currentGame.released?.substring(0, 4) || "TBA") + ") - " + currentGame.rating + "/5",
+        url: baseUrl + "/game/" + currentGame.slug + "-" + currentGame.id,
+      });
+    }
 
+    // Fallback if extraction failed
     if (recommendations.length === 0) {
       recommendations.push(...rawgGames.slice(0, 3).map((g: any) => {
         const genreArr = (g.genres || []) as any[];
@@ -373,6 +403,7 @@ async function handleRecommendation(query: string, userPseudo: string, rawgKey: 
         return {
           slug: g.slug,
           title: g.name,
+          summary: genreStr + " game avec une bonne communauté.",
           why: genreStr + " - " + g.rating + "/5",
           url: baseUrl + "/game/" + g.slug + "-" + g.id,
         };
@@ -387,10 +418,14 @@ async function handleRecommendation(query: string, userPseudo: string, rawgKey: 
       if (i < recommendations3.length - 1) summaryText += " / ";
     });
 
-    let questionText = raw;
-    const questionMatch = raw.match(/(\?[^\?]*?)$/);
-    if (questionMatch) {
-      questionText = questionMatch[1].trim();
+    // Extract last question or sentence
+    let questionText = "Lequel de ces trois te tente?";
+    const sentences = raw.split(/[.!?]+/).filter((s: string) => s.trim().length > 0);
+    if (sentences.length > 0) {
+      const lastSentence = sentences[sentences.length - 1].trim();
+      if (lastSentence.length > 5 && lastSentence.length < 200) {
+        questionText = lastSentence + "?";
+      }
     }
 
     return jsonResponse(
@@ -415,6 +450,7 @@ async function handleRecommendation(query: string, userPseudo: string, rawgKey: 
       return {
         slug: g.slug,
         title: g.name,
+        summary: genreStr + " game recommandé par la communauté Factiony.",
         why: genreStr ? genreStr + " - " + g.rating + "/5" : g.rating + "/5",
         url: baseUrl + "/game/" + g.slug + "-" + g.id,
       };
