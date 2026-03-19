@@ -8,11 +8,11 @@ type Role = 'user' | 'assistant' | 'recommendations';
 type ChatMessage = {
   role: Role;
   content: string;
-  recommendations?: Array<{ slug: string; title: string; summary?: string; why: string; url?: string }>;
+  recommendations?: Array<{ slug: string; title: string; why: string; url?: string }>;
 };
 
 type AiRecoResponse = {
-  recommendations?: Array<{ slug: string; title: string; summary?: string; why: string; url?: string }>;
+  recommendations?: Array<{ slug: string; title: string; why: string; url?: string }>;
   follow_up_question?: string;
   answer?: string;
   has_community_context?: boolean;
@@ -29,7 +29,6 @@ type Conversation = {
 export default function AssistantPage() {
   const { user } = useAuth();
   const firstName = user?.user_metadata?.full_name?.split(' ')[0] || 'Joueur';
-  const userPseudo = user?.user_metadata?.username || user?.email?.split('@')[0] || 'Gamer';
 
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -52,50 +51,35 @@ export default function AssistantPage() {
   }, [messages, loading]);
 
   useEffect(() => {
-    if (user?.id) {
-      loadConversations();
-    }
+    document.title = 'Assistant IA Gaming - Factiony';
+    if (user?.id) loadConversations();
   }, [user?.id]);
 
   async function loadConversations() {
-    if (!user?.id) {
-      setConversations([]);
-      return;
-    }
+    if (!user?.id) return;
     try {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('ai_conversations')
         .select('user_id, session_id, last_query, updated_at')
         .eq('user_id', user.id)
         .order('updated_at', { ascending: false })
         .limit(10);
 
-      if (error) {
-        console.error('Error loading conversations:', error);
-        setConversations([]);
-      } else {
-        setConversations(data ?? []);
-      }
+      setConversations(data ?? []);
     } catch (e) {
       console.error('Load conversations error:', e);
-      setConversations([]);
     }
   }
 
   async function loadConversation(sessionId: string) {
     if (!user?.id) return;
     try {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('ai_conversations')
         .select('messages')
         .eq('user_id', user.id)
         .eq('session_id', sessionId)
         .single();
-
-      if (error) {
-        console.error('Error loading conversation:', error);
-        return;
-      }
 
       if (data?.messages) {
         setMessages(JSON.parse(data.messages));
@@ -105,21 +89,16 @@ export default function AssistantPage() {
     }
   }
 
-  async function deleteConversation(sessionId: string, e: React.MouseEvent) {
-    e.stopPropagation();
+  async function deleteConversation(sessionId: string) {
     if (!user?.id) return;
     try {
-      const { error } = await supabase
+      await supabase
         .from('ai_conversations')
         .delete()
         .eq('user_id', user.id)
         .eq('session_id', sessionId);
 
-      if (error) {
-        console.error('Error deleting conversation:', error);
-      } else {
-        loadConversations();
-      }
+      loadConversations();
     } catch (e) {
       console.error('Delete conversation error:', e);
     }
@@ -153,10 +132,7 @@ export default function AssistantPage() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ 
-          query: finalQuery,
-          user_pseudo: userPseudo 
-        }),
+        body: JSON.stringify({ query: finalQuery }),
       });
 
       if (!res.ok) {
@@ -184,19 +160,18 @@ export default function AssistantPage() {
       }
 
       if (hasAddedRecos && data.recommendations?.length && data.personal_message) {
-        const followUp = `${data.personal_message}`;
+        const followUp = `\n\n📱 ${data.personal_message}`;
         setMessages((prev) => [...prev, { role: 'assistant', content: followUp }]);
       }
 
       if (user?.id) {
         try {
-          const newMessages = [...messages, { role: 'user' as Role, content: finalQuery }];
           await supabase
             .from('ai_conversations')
             .upsert({
               user_id: user.id,
               session_id: sessionId,
-              messages: JSON.stringify(newMessages),
+              messages: JSON.stringify([...messages, { role: 'user', content: finalQuery }]),
               last_query: finalQuery,
             });
 
@@ -216,10 +191,9 @@ export default function AssistantPage() {
     }
   }
 
-  document.title = 'Assistant IA Gaming - Factiony';
-
   return (
     <div className="flex h-screen bg-gray-900">
+      {/* Sidebar */}
       {user && (
         <div className={`${sidebarOpen ? 'w-64' : 'w-0'} transition-all bg-gray-800 border-r border-gray-700 overflow-hidden flex flex-col`}>
           <div className="p-4 border-b border-gray-700">
@@ -240,16 +214,20 @@ export default function AssistantPage() {
               conversations.map((conv) => (
                 <div
                   key={conv.session_id}
-                  onClick={() => loadConversation(conv.session_id)}
-                  className="group relative bg-gray-700 hover:bg-gray-600 rounded-lg p-3 cursor-pointer transition text-left"
+                  className="group bg-gray-700 hover:bg-gray-600 rounded-lg p-3 cursor-pointer transition text-left"
                 >
-                  <p className="text-xs font-medium text-white truncate">{conv.last_query}</p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    {new Date(conv.updated_at).toLocaleDateString('fr-FR')}
-                  </p>
                   <button
-                    onClick={(e) => deleteConversation(conv.session_id, e)}
-                    className="opacity-0 group-hover:opacity-100 absolute right-2 top-3 text-gray-400 hover:text-red-500 transition"
+                    onClick={() => loadConversation(conv.session_id)}
+                    className="w-full text-left"
+                  >
+                    <p className="text-xs font-medium text-white truncate">{conv.last_query}</p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {new Date(conv.updated_at).toLocaleDateString('fr-FR')}
+                    </p>
+                  </button>
+                  <button
+                    onClick={() => deleteConversation(conv.session_id)}
+                    className="opacity-0 group-hover:opacity-100 absolute right-2 top-2 text-gray-400 hover:text-red-500 transition"
                   >
                     <Trash2 size={14} />
                   </button>
@@ -260,7 +238,9 @@ export default function AssistantPage() {
         </div>
       )}
 
+      {/* Main Chat */}
       <div className="flex-1 flex flex-col">
+        {/* Header */}
         <div className="bg-gray-800 border-b border-gray-700 p-4">
           <div className="flex items-center justify-between max-w-5xl mx-auto">
             <div>
@@ -270,7 +250,7 @@ export default function AssistantPage() {
             {user && (
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="text-gray-400 hover:text-white transition px-4"
+                className="text-gray-400 hover:text-white transition"
               >
                 {sidebarOpen ? '✕' : '☰'}
               </button>
@@ -278,6 +258,7 @@ export default function AssistantPage() {
           </div>
         </div>
 
+        {/* Chat Area */}
         <div className="flex-1 overflow-y-auto p-4">
           <div className="max-w-3xl mx-auto">
             <div className="bg-gray-800 rounded-xl border border-gray-700 p-6 min-h-96">
@@ -307,20 +288,15 @@ export default function AssistantPage() {
                           {m.recommendations.map((r, idx) => (
                             <div key={idx} className="border-l-2 border-orange-500 pl-3 py-2">
                               <p className="text-gray-100 text-sm mb-1">🎮 <span className="font-semibold">{r.title}</span></p>
-                              {r.summary && (
-                                <p className="text-gray-300 text-xs mb-2">{r.summary}</p>
-                              )}
                               <p className="text-gray-400 text-xs mb-2">{r.why}</p>
-                              {r.url && (
-                                <a 
-                                  href={r.url}
-                                  target='_blank' 
-                                  rel='noopener noreferrer' 
-                                  className='text-orange-400 hover:text-orange-300 text-xs underline block'
-                                >
-                                  Pour en savoir plus sur {r.title}
-                                </a>
-                              )}
+                              <a 
+                                href={r.url || '#'} 
+                                target='_blank' 
+                                rel='noopener noreferrer' 
+                                className='text-orange-400 hover:text-orange-300 text-xs underline'
+                              >
+                                Pour en savoir plus sur {r.title}
+                              </a>
                             </div>
                           ))}
                         </div>
@@ -331,18 +307,14 @@ export default function AssistantPage() {
               ))}
 
               {loading && (
-                <div className="mb-4 flex justify-start">
-                  <div className="flex items-center gap-2 text-gray-400 text-sm">
-                    <div className="animate-spin">⏳</div>
-                    <span>Factiony réfléchit…</span>
-                  </div>
-                </div>
+                <div className="text-gray-400 text-sm">⏳ Factiony réfléchit…</div>
               )}
               <div ref={bottomRef} />
             </div>
           </div>
         </div>
 
+        {/* Input Area */}
         <div className="bg-gray-800 border-t border-gray-700 p-4">
           <div className="max-w-3xl mx-auto">
             <div className="flex gap-3">

@@ -9,7 +9,6 @@ function jsonResponse(body: any, status = 200, corsHeaders: Record<string, strin
   });
 }
 
-// RAWG Tag IDs - THESE WORK
 const TAG_IDS: Record<string, number> = {
   "coop": 7,
   "coopératif": 7,
@@ -101,17 +100,26 @@ export default async (request: Request) => {
   const isGameplayQuestion = gameplayKeywords.some(word => queryLower.includes(word));
 
   if (isGameplayQuestion) {
-    return handleGameplayQuestion(query, userPseudo, MISTRAL_API_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, corsHeaders);
+    return handleGameplayQuestion(query, userPseudo, MISTRAL_API_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, BASE_URL, corsHeaders);
   } else {
     return handleRecommendation(query, userPseudo, RAWG_API_KEY, MISTRAL_API_KEY, BASE_URL, SUPABASE_URL, SUPABASE_ANON_KEY, corsHeaders);
   }
 };
 
-async function handleGameplayQuestion(query: string, userPseudo: string, mistralKey: string, supabaseUrl: string, supabaseKey: string, corsHeaders: Record<string, string>) {
+async function handleGameplayQuestion(query: string, userPseudo: string, mistralKey: string, supabaseUrl: string, supabaseKey: string, baseUrl: string, corsHeaders: Record<string, string>) {
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  const systemPrompt = "Tu es Factiony AI, expert gaming. Réponds à des questions gaming (boss, build, strat). Conseils directs et utiles.";
-  const userPrompt = "Question: " + query + "\nRéponds directement.";
+  const systemPrompt = `Tu es Factiony AI, expert gaming.
+
+RÈGLES STRICTES:
+- Réponds à des questions gaming (boss, build, strat)
+- Conseils directs, pratiques, sans blabla
+- PAS D'ASTÉRISQUES (* ou **) - format texte simple
+- Si tu mentionnes un jeu Factiony, inclus le lien au format: [Nom du jeu](${baseUrl}/game/slug-id)
+- MAX 3 jeux mentionnés avec lien
+- À la fin, pose UNE question de suivi courte et pertinente`;
+
+  const userPrompt = "Question: " + query + "\nRéponds directement avec conseils pratiques.";
 
   try {
     const mistralRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
@@ -120,7 +128,7 @@ async function handleGameplayQuestion(query: string, userPseudo: string, mistral
       body: JSON.stringify({
         model: "mistral-large-latest",
         temperature: 0.7,
-        max_tokens: 800,
+        max_tokens: 1000,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -132,7 +140,10 @@ async function handleGameplayQuestion(query: string, userPseudo: string, mistral
     const mistralJson = await mistralRes.json();
     const response = mistralJson?.choices?.[0]?.message?.content ?? "";
 
-    return jsonResponse({ query, user_pseudo: userPseudo, mode: "gameplay", answer: response }, 200, corsHeaders);
+    // Clean up asterisks
+    const cleanResponse = response.replace(/\*\*?/g, "");
+
+    return jsonResponse({ query, user_pseudo: userPseudo, mode: "gameplay", answer: cleanResponse }, 200, corsHeaders);
   } catch (e) {
     return jsonResponse({ query, user_pseudo: userPseudo, mode: "gameplay", answer: "Erreur. Réessaie." }, 200, corsHeaders);
   }
@@ -172,7 +183,6 @@ Format réponse: tags:tag1,tag2 platform:ps5`;
       const parseResult = parseJson?.choices?.[0]?.message?.content ?? "";
       console.log("[AI-RECO] Parsed result:", parseResult);
 
-      // Extract tags from response
       const tagsMatch = parseResult.match(/tags:([^\s]+)/);
       if (tagsMatch) {
         const tagNames = tagsMatch[1].split(",");
@@ -183,7 +193,6 @@ Format réponse: tags:tag1,tag2 platform:ps5`;
         console.log("[AI-RECO] Extracted tag IDs:", parsedTags);
       }
 
-      // Extract platform from response
       const platformMatch = parseResult.match(/platform:(\w+)/);
       if (platformMatch) {
         const platformName = platformMatch[1].toLowerCase();
@@ -196,12 +205,10 @@ Format réponse: tags:tag1,tag2 platform:ps5`;
     }
   } catch (e) {
     console.error("[AI-RECO] Parsing error (non-critical):", e);
-    // Continue without parsed tags
   }
 
-  // ==================== STEP 2: FALLBACK TO SIMPLE EXTRACTION ====================
+  // ==================== STEP 2: FALLBACK ====================
   if (parsedTags.length === 0) {
-    // If Mistral parsing didn't work, fall back to simple keyword matching
     for (const [keyword, id] of Object.entries(TAG_IDS)) {
       if (queryLower.includes(keyword)) {
         parsedTags = [id.toString()];
@@ -217,7 +224,6 @@ Format réponse: tags:tag1,tag2 platform:ps5`;
     else if (queryLower.includes("pc")) platformId = "4";
   }
 
-  // Clean search keywords
   let searchKeywords = queryLower
     .replace(/ps5|playstation|xbox|switch|pc|sur|on|à|pour|jeux|game|games|the|a|an|le|la|les|un|une|des|et|coop|multiplayer|solo|rpg|action|strategy|adventure|puzzle|shooter|racing|horror|indie|adoré|adorée|love|aimé|like/gi, "")
     .trim();
@@ -256,16 +262,43 @@ Format réponse: tags:tag1,tag2 platform:ps5`;
     }, 200, corsHeaders);
   }
 
-  // ==================== STEP 4: RECOMMEND WITH MISTRAL ====================
-  const systemPrompt = "Tu es Factiony AI. Recommande EXACTEMENT 3 jeux.\n\nFormat:\n1. Titre du jeu\nDescription (2-3 lignes) pourquoi ça match\n\n2. Titre du jeu\nDescription...\n\n3. Titre du jeu\nDescription...\n\nAprès: question engageante. SANS EMOJI.";
+  // ==================== STEP 4: FILTER GAMES ====================
+  const filteredGames = rawgGames
+    .filter(g => g.rating >= 3.5)
+    .slice(0, 15);
 
-  const gamesData = rawgGames.slice(0, 20).map((g: any) => ({
+  const gamesForMistral = filteredGames.map((g: any) => ({
     name: g.name,
+    slug: g.slug,
+    id: g.id,
     genres: (g.genres || []).map((x: any) => x.name).join(", "),
     rating: g.rating,
   }));
 
-  const userPrompt = "Demande: " + query + "\n\nJeux (top rated):\n" + JSON.stringify(gamesData, null, 2) + "\n\nRecommande 3 jeux avec descriptions claires. Puis une question.";
+  const systemPrompt = `Tu es Factiony AI. RECOMMANDE JUSQU'À 3 JEUX (minimum 1).
+
+RÈGLES STRICTES:
+1. Recommande UNIQUEMENT des jeux de la liste fournie
+2. PAS D'ASTÉRISQUES - texte simple uniquement
+3. Recommande 1, 2 ou 3 jeux selon la pertinence (pas forcément 3)
+4. Format simple:
+   1. Nom du jeu
+   Description courte (2-3 lignes) pourquoi ça match
+   Genre - Rating/5
+   Lien: [Voir le jeu](${baseUrl}/game/SLUG-ID)
+
+   2. Nom du jeu
+   Description...
+   Genre - Rating/5
+   Lien: [Voir le jeu](${baseUrl}/game/SLUG-ID)
+
+5. APRÈS les jeux: une question courte pour affiner
+   Ex: "Tu préfères du coop local ou en ligne ?"
+   Ex: "Tu veux plus d'action ou plus de réflexion ?"
+
+6. N'INVENTE JAMAIS de jeu - utilise UNIQUEMENT ceux de la liste`;
+
+  const userPrompt = "Demande: " + query + "\n\nJeux disponibles (UTILISE UNIQUEMENT CEUX-CI):\n" + JSON.stringify(gamesForMistral, null, 2) + "\n\nRecommande exactement 3 jeux avec descriptions. Puis une question pour affiner.";
 
   try {
     const mistralRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
@@ -274,7 +307,7 @@ Format réponse: tags:tag1,tag2 platform:ps5`;
       body: JSON.stringify({
         model: "mistral-large-latest",
         temperature: 0.8,
-        max_tokens: 1000,
+        max_tokens: 1200,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -286,16 +319,19 @@ Format réponse: tags:tag1,tag2 platform:ps5`;
     const mistralJson = await mistralRes.json();
     const raw = mistralJson?.choices?.[0]?.message?.content ?? "";
 
-    // Extract 3 games
+    // Clean up asterisks
+    const cleanRaw = raw.replace(/\*\*?/g, "");
+
+    // Extract games
     const recommendations: any[] = [];
-    const lines = raw.split("\n");
+    const lines = cleanRaw.split("\n");
     let currentGame = null;
     let currentDescription = "";
     let found = 0;
     
     for (const line of lines) {
       const trimmed = line.trim();
-      const gameMatch = rawgGames.find(g => trimmed.toLowerCase().includes(g.name.toLowerCase()) && trimmed.length < 100);
+      const gameMatch = gamesForMistral.find(g => trimmed.toLowerCase().includes(g.name.toLowerCase()) && trimmed.length < 100);
       
       if (gameMatch && found < 3) {
         if (currentGame && currentDescription) {
@@ -303,14 +339,14 @@ Format réponse: tags:tag1,tag2 platform:ps5`;
             slug: currentGame.slug,
             title: currentGame.name,
             summary: currentDescription.trim(),
-            why: (currentGame.genres || []).slice(0, 2).map((x: any) => typeof x === "string" ? x : x.name).join(", ") + " - " + currentGame.rating + "/5",
+            why: currentGame.genres + " - " + currentGame.rating + "/5",
             url: baseUrl + "/game/" + currentGame.slug + "-" + currentGame.id,
           });
           found++;
           currentDescription = "";
         }
         currentGame = gameMatch;
-      } else if (currentGame && trimmed.length > 5 && !trimmed.includes("?") && found < 3) {
+      } else if (currentGame && trimmed.length > 5 && !trimmed.includes("?") && !trimmed.includes("Lien") && found < 3) {
         currentDescription += (currentDescription ? " " : "") + trimmed;
       }
     }
@@ -320,31 +356,26 @@ Format réponse: tags:tag1,tag2 platform:ps5`;
         slug: currentGame.slug,
         title: currentGame.name,
         summary: currentDescription.trim(),
-        why: (currentGame.genres || []).slice(0, 2).map((x: any) => typeof x === "string" ? x : x.name).join(", ") + " - " + currentGame.rating + "/5",
+        why: currentGame.genres + " - " + currentGame.rating + "/5",
         url: baseUrl + "/game/" + currentGame.slug + "-" + currentGame.id,
       });
     }
 
-    if (recommendations.length < 3) {
-      const missing = 3 - recommendations.length;
-      recommendations.push(...rawgGames.slice(recommendations.length, recommendations.length + missing).map((g: any) => ({
-        slug: g.slug,
-        title: g.name,
-        summary: (g.genres || []).slice(0, 2).map((x: any) => typeof x === "string" ? x : x.name).join(", "),
-        why: (g.genres || []).slice(0, 2).map((x: any) => typeof x === "string" ? x : x.name).join(", ") + " - " + g.rating + "/5",
-        url: baseUrl + "/game/" + g.slug + "-" + g.id,
-      })));
-    }
-
+    // No fallback - keep only the games Mistral recommended
     const recs = recommendations.slice(0, 3);
-    let summaryText = recs.map(r => r.title + " (" + r.why + ")").join(" / ");
     
     let questionText = "Lequel te tente?";
-    const sentences = raw.split(/[.!?]+/).filter((s: string) => s.trim().length > 0);
+    const sentences = cleanRaw.split(/[.!?]+/).filter((s: string) => s.trim().length > 0);
     if (sentences.length > 0) {
       const last = sentences[sentences.length - 1].trim();
-      if (last.length > 5 && last.length < 150) questionText = last + "?";
+      if (last.length > 5 && last.length < 150 && last.includes("?") === false) {
+        questionText = last + "?";
+      } else if (last.length > 5 && last.length < 150) {
+        questionText = last;
+      }
     }
+
+    let summaryText = recs.map(r => r.title + " (" + r.why + ")").join(" / ");
 
     return jsonResponse({
       query, user_pseudo: userPseudo, mode: "recommendation",
@@ -354,18 +385,19 @@ Format réponse: tags:tag1,tag2 platform:ps5`;
     }, 200, corsHeaders);
   } catch (e) {
     console.error("[AI-RECO] Mistral error:", e);
-    const top3 = rawgGames.slice(0, 3).map((g: any) => ({
+    // If error, don't force games - return just the best ones
+    const top2 = gamesForMistral.slice(0, 2).map((g: any) => ({
       slug: g.slug,
       title: g.name,
-      summary: (g.genres || []).slice(0, 2).map((x: any) => typeof x === "string" ? x : x.name).join(", "),
-      why: (g.genres || []).slice(0, 2).map((x: any) => typeof x === "string" ? x : x.name).join(", ") + " - " + g.rating + "/5",
+      summary: g.genres,
+      why: g.genres + " - " + g.rating + "/5",
       url: baseUrl + "/game/" + g.slug + "-" + g.id,
     }));
     
     return jsonResponse({
       query, user_pseudo: userPseudo, mode: "recommendation",
-      recommendations: top3,
-      short_summary: top3.map(r => r.title + " (" + r.why + ")").join(" / "),
+      recommendations: top2,
+      short_summary: top2.map(r => r.title + " (" + r.why + ")").join(" / "),
       personal_message: "Lequel te tente?",
     }, 200, corsHeaders);
   }
