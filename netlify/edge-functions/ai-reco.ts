@@ -10,33 +10,15 @@ function jsonResponse(body: any, status = 200, corsHeaders: Record<string, strin
 }
 
 const TAG_IDS: Record<string, number> = {
-  "coop": 7,
-  "coopératif": 7,
-  "cooperative": 7,
-  "multiplayer": 7906,
-  "multijoueur": 7906,
-  "solo": 3368,
-  "single-player": 3368,
-  "rpg": 5,
-  "action": 4,
-  "strategy": 10,
-  "stratégie": 10,
-  "adventure": 11,
-  "aventure": 11,
-  "puzzle": 25,
-  "shooter": 12,
-  "racing": 1,
-  "courses": 1,
-  "sports": 2,
-  "foot": 2,
-  "football": 2,
-  "soccer": 2,
-  "horror": 40,
-  "indie": 51,
-  "indépendant": 51,
-  "simulation": 14,
-  "fighting": 6,
-  "combat": 6,
+  "coop": 7, "coopératif": 7, "cooperative": 7,
+  "multiplayer": 7906, "multijoueur": 7906,
+  "solo": 3368, "single-player": 3368,
+  "rpg": 5, "action": 4, "strategy": 10, "stratégie": 10,
+  "adventure": 11, "aventure": 11, "puzzle": 25,
+  "shooter": 12, "racing": 1, "courses": 1,
+  "sports": 2, "foot": 2, "football": 2, "soccer": 2,
+  "horror": 40, "indie": 51, "indépendant": 51,
+  "simulation": 14, "fighting": 6, "combat": 6,
 };
 
 export default async (request: Request) => {
@@ -79,23 +61,22 @@ export default async (request: Request) => {
   }
 
   const queryLower = query.toLowerCase();
-  console.log("[AI-RECO] Query:", query, "User:", userPseudo);
+  console.log("[ALBUS] Query:", query, "User:", userPseudo);
 
-  // GAMING GATE
   const gamingKeywords = [
     "jeu", "game", "gaming", "play", "jouer", "console", "ps5", "xbox", "switch", "pc",
     "coop", "multiplayer", "solo", "rpg", "action", "stratégie", "adventure", "puzzle",
     "shooter", "racing", "horror", "indie", "boss", "level", "build", "strat",
     "battre", "beat", "defeat", "skill", "technique", "playstation", "nintendo", "steam",
+    "2 joueurs", "à 2", "à deux", "joueur à", "en coop", "coopératif", "multijoueur",
   ];
 
   const isGamingQuestion = gamingKeywords.some(word => queryLower.includes(word));
 
   if (!isGamingQuestion) {
-    return jsonResponse({ query, user_pseudo: userPseudo, mode: "blocked", answer: "Je suis spécialisé dans les jeux vidéo!" }, 200, corsHeaders);
+    return jsonResponse({ query, user_pseudo: userPseudo, mode: "blocked", answer: "Je suis Albus, assistant gaming IA. Je peux t'aider sur les jeux vidéo!" }, 200, corsHeaders);
   }
 
-  // MODE DETECTION
   const gameplayKeywords = ["battre", "beat", "boss", "strat", "stratégie", "strategy", "build", "comment", "skill", "technique", "conseil", "tip", "trick", "guide"];
   const isGameplayQuestion = gameplayKeywords.some(word => queryLower.includes(word));
 
@@ -109,10 +90,11 @@ export default async (request: Request) => {
 async function handleGameplayQuestion(query: string, userPseudo: string, mistralKey: string, supabaseUrl: string, supabaseKey: string, baseUrl: string, corsHeaders: Record<string, string>) {
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  const systemPrompt = `Tu es Factiony AI, expert gaming.
+  const systemPrompt = `Tu es Albus, assistant gaming IA de Factiony.
 
 RÈGLES STRICTES:
 - Réponds à des questions gaming (boss, build, strat)
+- Utilise ta connaissance des jeux et des données RAWG
 - Conseils directs, pratiques, sans blabla
 - PAS D'ASTÉRISQUES (* ou **) - format texte simple
 - Si tu mentionnes un jeu Factiony, inclus le lien au format: [Nom du jeu](${baseUrl}/game/slug-id)
@@ -140,7 +122,6 @@ RÈGLES STRICTES:
     const mistralJson = await mistralRes.json();
     const response = mistralJson?.choices?.[0]?.message?.content ?? "";
 
-    // Clean up asterisks
     const cleanResponse = response.replace(/\*\*?/g, "");
 
     return jsonResponse({ query, user_pseudo: userPseudo, mode: "gameplay", answer: cleanResponse }, 200, corsHeaders);
@@ -152,17 +133,13 @@ RÈGLES STRICTES:
 async function handleRecommendation(query: string, userPseudo: string, rawgKey: string, mistralKey: string, baseUrl: string, supabaseUrl: string, supabaseKey: string, corsHeaders: Record<string, string>) {
   const queryLower = query.toLowerCase();
 
-  // ==================== STEP 1: MISTRAL PARSES THE QUERY ====================
   let parsedTags: string[] = [];
   let platformId = null;
 
   try {
     const parseSystemPrompt = "Tu es un expert gaming. Parse la requête utilisateur pour extraire les genres/tags RAWG pertinents.\n\nTags disponibles: action, adventure, rpg, strategy, shooter, racing, puzzle, horror, indie, sports, coop, multiplayer, solo, simulation, fighting.\n\nRéponds au format: tags:action,adventure platform:ps5\n\nSi pas de tags clairs, laisse vide.";
 
-    const parseUserPrompt = `Requête: "${query}"
-
-Extrait max 2 tags RAWG pertinents et la plateforme si mentionnée.
-Format réponse: tags:tag1,tag2 platform:ps5`;
+    const parseUserPrompt = `Requête: "${query}"\n\nExtrait max 2 tags RAWG pertinents et la plateforme si mentionnée.\nFormat réponse: tags:tag1,tag2 platform:ps5`;
 
     const parseRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
       method: "POST",
@@ -181,7 +158,7 @@ Format réponse: tags:tag1,tag2 platform:ps5`;
     if (parseRes.ok) {
       const parseJson = await parseRes.json();
       const parseResult = parseJson?.choices?.[0]?.message?.content ?? "";
-      console.log("[AI-RECO] Parsed result:", parseResult);
+      console.log("[ALBUS] Parsed result:", parseResult);
 
       const tagsMatch = parseResult.match(/tags:([^\s]+)/);
       if (tagsMatch) {
@@ -190,7 +167,6 @@ Format réponse: tags:tag1,tag2 platform:ps5`;
           .map((tag: string) => TAG_IDS[tag.trim()])
           .filter((id: any) => id !== undefined)
           .map((id: number) => id.toString());
-        console.log("[AI-RECO] Extracted tag IDs:", parsedTags);
       }
 
       const platformMatch = parseResult.match(/platform:(\w+)/);
@@ -200,14 +176,12 @@ Format réponse: tags:tag1,tag2 platform:ps5`;
         else if (platformName.includes("xbox")) platformId = "186";
         else if (platformName.includes("switch")) platformId = "7";
         else if (platformName.includes("pc")) platformId = "4";
-        console.log("[AI-RECO] Extracted platform:", platformId);
       }
     }
   } catch (e) {
-    console.error("[AI-RECO] Parsing error (non-critical):", e);
+    console.error("[ALBUS] Parsing error:", e);
   }
 
-  // ==================== STEP 2: FALLBACK ====================
   if (parsedTags.length === 0) {
     for (const [keyword, id] of Object.entries(TAG_IDS)) {
       if (queryLower.includes(keyword)) {
@@ -228,9 +202,6 @@ Format réponse: tags:tag1,tag2 platform:ps5`;
     .replace(/ps5|playstation|xbox|switch|pc|sur|on|à|pour|jeux|game|games|the|a|an|le|la|les|un|une|des|et|coop|multiplayer|solo|rpg|action|strategy|adventure|puzzle|shooter|racing|horror|indie|adoré|adorée|love|aimé|like/gi, "")
     .trim();
 
-  console.log("[AI-RECO] Platform:", platformId, "Tag IDs:", parsedTags, "Search:", searchKeywords);
-
-  // ==================== STEP 3: CALL RAWG ====================
   const rawgParams = new URLSearchParams();
   rawgParams.set("key", rawgKey);
   rawgParams.set("page_size", "50");
@@ -242,15 +213,13 @@ Format réponse: tags:tag1,tag2 platform:ps5`;
   let rawgGames: any[] = [];
   try {
     const rawgUrl = "https://api.rawg.io/api/games?" + rawgParams.toString();
-    console.log("[AI-RECO] RAWG URL:", rawgUrl);
     const rawgRes = await fetch(rawgUrl);
     if (rawgRes.ok) {
       const rawgData = await rawgRes.json();
       rawgGames = rawgData.results || [];
-      console.log("[AI-RECO] RAWG returned", rawgGames.length, "games");
     }
   } catch (e) {
-    console.error("[AI-RECO] RAWG error:", e);
+    console.error("[ALBUS] RAWG error:", e);
   }
 
   if (rawgGames.length === 0) {
@@ -262,7 +231,6 @@ Format réponse: tags:tag1,tag2 platform:ps5`;
     }, 200, corsHeaders);
   }
 
-  // ==================== STEP 4: FILTER GAMES ====================
   const filteredGames = rawgGames
     .filter(g => g.rating >= 3.5)
     .slice(0, 15);
@@ -275,30 +243,26 @@ Format réponse: tags:tag1,tag2 platform:ps5`;
     rating: g.rating,
   }));
 
-  const systemPrompt = `Tu es Factiony AI. RECOMMANDE JUSQU'À 3 JEUX (minimum 1).
+  const systemPrompt = `Tu es Albus, assistant gaming IA de Factiony. RECOMMANDE JUSQU'À 3 JEUX (minimum 1).
 
 RÈGLES STRICTES:
-1. Recommande UNIQUEMENT des jeux de la liste fournie
+1. Recommande UNIQUEMENT des jeux de la liste fournie (data RAWG)
 2. PAS D'ASTÉRISQUES - texte simple uniquement
 3. Recommande 1, 2 ou 3 jeux selon la pertinence (pas forcément 3)
-4. Format simple:
+4. Utilise les infos RAWG (genres, rating, communauté) pour justifier tes recommandations
+5. Format simple:
    1. Nom du jeu
-   Description courte (2-3 lignes) pourquoi ça match
+   Description courte (2-3 lignes) pourquoi ça match (basée sur RAWG)
    Genre - Rating/5
    Lien: [Voir le jeu](${baseUrl}/game/SLUG-ID)
 
-   2. Nom du jeu
-   Description...
-   Genre - Rating/5
-   Lien: [Voir le jeu](${baseUrl}/game/SLUG-ID)
-
-5. APRÈS les jeux: une question courte pour affiner
+6. APRÈS les jeux: une question courte pour affiner
    Ex: "Tu préfères du coop local ou en ligne ?"
    Ex: "Tu veux plus d'action ou plus de réflexion ?"
 
-6. N'INVENTE JAMAIS de jeu - utilise UNIQUEMENT ceux de la liste`;
+7. N'INVENTE JAMAIS de jeu - utilise UNIQUEMENT ceux de la liste RAWG`;
 
-  const userPrompt = "Demande: " + query + "\n\nJeux disponibles (UTILISE UNIQUEMENT CEUX-CI):\n" + JSON.stringify(gamesForMistral, null, 2) + "\n\nRecommande exactement 3 jeux avec descriptions. Puis une question pour affiner.";
+  const userPrompt = "Demande: " + query + "\n\nJeux disponibles (UTILISE UNIQUEMENT CEUX-CI):\n" + JSON.stringify(gamesForMistral, null, 2) + "\n\nRecommande 1-3 jeux avec descriptions. Puis une question pour affiner.";
 
   try {
     const mistralRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
@@ -319,10 +283,8 @@ RÈGLES STRICTES:
     const mistralJson = await mistralRes.json();
     const raw = mistralJson?.choices?.[0]?.message?.content ?? "";
 
-    // Clean up asterisks
     const cleanRaw = raw.replace(/\*\*?/g, "");
 
-    // Extract games
     const recommendations: any[] = [];
     const lines = cleanRaw.split("\n");
     let currentGame = null;
@@ -361,7 +323,6 @@ RÈGLES STRICTES:
       });
     }
 
-    // No fallback - keep only the games Mistral recommended
     const recs = recommendations.slice(0, 3);
     
     let questionText = "Lequel te tente?";
@@ -384,8 +345,7 @@ RÈGLES STRICTES:
       personal_message: questionText,
     }, 200, corsHeaders);
   } catch (e) {
-    console.error("[AI-RECO] Mistral error:", e);
-    // If error, don't force games - return just the best ones
+    console.error("[ALBUS] Mistral error:", e);
     const top2 = gamesForMistral.slice(0, 2).map((g: any) => ({
       slug: g.slug,
       title: g.name,

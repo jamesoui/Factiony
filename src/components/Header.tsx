@@ -95,7 +95,7 @@ const Header: React.FC = () => {
                 : 'text-gray-200 hover:text-white'
             }`}
           >
-            🤖 Assistant IA
+            Albus
           </Link>
         )}
 

@@ -32,6 +32,7 @@ const MobileMenu: React.FC<MobileMenuProps> = ({
   ];
 
   const privateNavItems = [
+    { key: 'albus', label: 'Albus' },
     { key: 'profile', label: t('nav.profile') },
     { key: 'journal', label: t('nav.journal') }
   ];

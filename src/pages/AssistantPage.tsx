@@ -8,11 +8,11 @@ type Role = 'user' | 'assistant' | 'recommendations';
 type ChatMessage = {
   role: Role;
   content: string;
-  recommendations?: Array<{ slug: string; title: string; why: string; url?: string }>;
+  recommendations?: Array<{ slug: string; title: string; summary?: string; why: string; url?: string }>;
 };
 
 type AiRecoResponse = {
-  recommendations?: Array<{ slug: string; title: string; why: string; url?: string }>;
+  recommendations?: Array<{ slug: string; title: string; summary?: string; why: string; url?: string }>;
   follow_up_question?: string;
   answer?: string;
   has_community_context?: boolean;
@@ -28,7 +28,8 @@ type Conversation = {
 
 export default function AssistantPage() {
   const { user } = useAuth();
-  const firstName = user?.user_metadata?.full_name?.split(' ')[0] || 'Joueur';
+  const firstName = user?.user_metadata?.full_name?.split(' ')[0] || user?.user_metadata?.username || user?.email?.split('@')[0] || 'Joueur';
+  const userPseudo = user?.user_metadata?.username || user?.email?.split('@')[0] || 'Gamer';
 
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -51,35 +52,50 @@ export default function AssistantPage() {
   }, [messages, loading]);
 
   useEffect(() => {
-    document.title = 'Assistant IA Gaming - Factiony';
-    if (user?.id) loadConversations();
+    if (user?.id) {
+      loadConversations();
+    }
   }, [user?.id]);
 
   async function loadConversations() {
-    if (!user?.id) return;
+    if (!user?.id) {
+      setConversations([]);
+      return;
+    }
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('ai_conversations')
         .select('user_id, session_id, last_query, updated_at')
         .eq('user_id', user.id)
         .order('updated_at', { ascending: false })
         .limit(10);
 
-      setConversations(data ?? []);
+      if (error) {
+        console.error('Error loading conversations:', error);
+        setConversations([]);
+      } else {
+        setConversations(data ?? []);
+      }
     } catch (e) {
       console.error('Load conversations error:', e);
+      setConversations([]);
     }
   }
 
   async function loadConversation(sessionId: string) {
     if (!user?.id) return;
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('ai_conversations')
         .select('messages')
         .eq('user_id', user.id)
         .eq('session_id', sessionId)
         .single();
+
+      if (error) {
+        console.error('Error loading conversation:', error);
+        return;
+      }
 
       if (data?.messages) {
         setMessages(JSON.parse(data.messages));
@@ -89,16 +105,21 @@ export default function AssistantPage() {
     }
   }
 
-  async function deleteConversation(sessionId: string) {
+  async function deleteConversation(sessionId: string, e: React.MouseEvent) {
+    e.stopPropagation();
     if (!user?.id) return;
     try {
-      await supabase
+      const { error } = await supabase
         .from('ai_conversations')
         .delete()
         .eq('user_id', user.id)
         .eq('session_id', sessionId);
 
-      loadConversations();
+      if (error) {
+        console.error('Error deleting conversation:', error);
+      } else {
+        loadConversations();
+      }
     } catch (e) {
       console.error('Delete conversation error:', e);
     }
@@ -132,7 +153,10 @@ export default function AssistantPage() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ query: finalQuery }),
+        body: JSON.stringify({ 
+          query: finalQuery,
+          user_pseudo: userPseudo 
+        }),
       });
 
       if (!res.ok) {
@@ -160,18 +184,19 @@ export default function AssistantPage() {
       }
 
       if (hasAddedRecos && data.recommendations?.length && data.personal_message) {
-        const followUp = `\n\n📱 ${data.personal_message}`;
+        const followUp = `${data.personal_message}`;
         setMessages((prev) => [...prev, { role: 'assistant', content: followUp }]);
       }
 
       if (user?.id) {
         try {
+          const newMessages = [...messages, { role: 'user' as Role, content: finalQuery }];
           await supabase
             .from('ai_conversations')
             .upsert({
               user_id: user.id,
               session_id: sessionId,
-              messages: JSON.stringify([...messages, { role: 'user', content: finalQuery }]),
+              messages: JSON.stringify(newMessages),
               last_query: finalQuery,
             });
 
@@ -190,6 +215,8 @@ export default function AssistantPage() {
       setLoading(false);
     }
   }
+
+  document.title = 'Albus - Assistant Gaming Factiony';
 
   return (
     <div className="flex h-screen bg-gray-900">
@@ -214,20 +241,16 @@ export default function AssistantPage() {
               conversations.map((conv) => (
                 <div
                   key={conv.session_id}
-                  className="group bg-gray-700 hover:bg-gray-600 rounded-lg p-3 cursor-pointer transition text-left"
+                  onClick={() => loadConversation(conv.session_id)}
+                  className="group relative bg-gray-700 hover:bg-gray-600 rounded-lg p-3 cursor-pointer transition text-left"
                 >
+                  <p className="text-xs font-medium text-white truncate">{conv.last_query}</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    {new Date(conv.updated_at).toLocaleDateString('fr-FR')}
+                  </p>
                   <button
-                    onClick={() => loadConversation(conv.session_id)}
-                    className="w-full text-left"
-                  >
-                    <p className="text-xs font-medium text-white truncate">{conv.last_query}</p>
-                    <p className="text-xs text-gray-400 mt-1">
-                      {new Date(conv.updated_at).toLocaleDateString('fr-FR')}
-                    </p>
-                  </button>
-                  <button
-                    onClick={() => deleteConversation(conv.session_id)}
-                    className="opacity-0 group-hover:opacity-100 absolute right-2 top-2 text-gray-400 hover:text-red-500 transition"
+                    onClick={(e) => deleteConversation(conv.session_id, e)}
+                    className="opacity-0 group-hover:opacity-100 absolute right-2 top-3 text-gray-400 hover:text-red-500 transition"
                   >
                     <Trash2 size={14} />
                   </button>
@@ -243,14 +266,17 @@ export default function AssistantPage() {
         {/* Header */}
         <div className="bg-gray-800 border-b border-gray-700 p-4">
           <div className="flex items-center justify-between max-w-5xl mx-auto">
-            <div>
-              <h1 className="text-2xl font-bold text-white">On joue à quoi aujourd'hui ? 🤖</h1>
-              <p className="text-sm text-gray-400">{user ? 'Basé sur tes goûts Factiony' : 'Assistant gaming intelligent'}</p>
+            <div className="flex items-center gap-3">
+              <span className="bg-orange-600 text-white px-2 py-1 rounded text-xs font-bold">Albus</span>
+              <div>
+                <h1 className="text-2xl font-bold text-white">On joue avec Albus 🤖</h1>
+                <p className="text-sm text-gray-400">{user ? 'Basé sur tes goûts Factiony' : 'Assistant gaming intelligent'}</p>
+              </div>
             </div>
             {user && (
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="text-gray-400 hover:text-white transition"
+                className="text-gray-400 hover:text-white transition px-4"
               >
                 {sidebarOpen ? '✕' : '☰'}
               </button>
@@ -283,20 +309,25 @@ export default function AssistantPage() {
                   {m.role === 'recommendations' && m.recommendations && (
                     <div className="mb-4 flex justify-start">
                       <div className="max-w-md px-4 py-3 rounded-lg bg-gray-700 rounded-bl-none w-full">
-                        <p className="text-gray-100 font-semibold mb-3">Voilà 3 jeux pour toi :</p>
+                        <p className="text-gray-100 font-semibold mb-3">Voilà {m.recommendations.length} jeu{m.recommendations.length > 1 ? 'x' : ''} pour toi :</p>
                         <div className="space-y-3">
                           {m.recommendations.map((r, idx) => (
                             <div key={idx} className="border-l-2 border-orange-500 pl-3 py-2">
                               <p className="text-gray-100 text-sm mb-1">🎮 <span className="font-semibold">{r.title}</span></p>
+                              {r.summary && (
+                                <p className="text-gray-300 text-xs mb-2">{r.summary}</p>
+                              )}
                               <p className="text-gray-400 text-xs mb-2">{r.why}</p>
-                              <a 
-                                href={r.url || '#'} 
-                                target='_blank' 
-                                rel='noopener noreferrer' 
-                                className='text-orange-400 hover:text-orange-300 text-xs underline'
-                              >
-                                Pour en savoir plus sur {r.title}
-                              </a>
+                              {r.url && (
+                                <a 
+                                  href={r.url}
+                                  target='_blank' 
+                                  rel='noopener noreferrer' 
+                                  className='text-orange-400 hover:text-orange-300 text-xs underline block'
+                                >
+                                  Pour en savoir plus sur {r.title}
+                                </a>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -307,7 +338,12 @@ export default function AssistantPage() {
               ))}
 
               {loading && (
-                <div className="text-gray-400 text-sm">⏳ Factiony réfléchit…</div>
+                <div className="mb-4 flex justify-start">
+                  <div className="flex items-center gap-2 text-gray-400 text-sm">
+                    <div className="animate-spin">⏳</div>
+                    <span>Albus réfléchit…</span>
+                  </div>
+                </div>
               )}
               <div ref={bottomRef} />
             </div>
@@ -339,7 +375,7 @@ export default function AssistantPage() {
                 Envoyer
               </button>
             </div>
-            <p className="text-xs text-gray-500 mt-2 text-center">Powered by Factiony AI</p>
+            <p className="text-xs text-gray-500 mt-2 text-center">Powered by Albus AI</p>
           </div>
         </div>
       </div>

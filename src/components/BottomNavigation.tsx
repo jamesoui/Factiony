@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Users, Search, BookOpen, User } from 'lucide-react';
+import { Users, Search, BookOpen, User, Brain } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 
@@ -16,6 +16,7 @@ const BottomNavigation: React.FC = () => {
   ];
 
   const privateNavItems = [
+    { key: 'albus', path: '/assistant', label: 'Albus', icon: Brain },
     { key: 'profile', path: '/profile', label: t('nav.profile') || 'Profil', icon: User },
     { key: 'journal', path: '/journal', label: t('nav.journal') || 'Journal', icon: BookOpen }
   ];
