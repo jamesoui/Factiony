@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BookOpen, Calendar, Clock, Star, Filter, BarChart3, TrendingUp, Monitor } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { gameToSlug } from '../../utils/slugify';
 import { UserGame, Game } from '../../types';
 import GameCard from '../GameCard';
 import StatsChart from '../StatsChart';
@@ -261,7 +262,7 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
                 <div className="flex-1 p-6">
                   <div className="flex items-start justify-between mb-4">
                     <div>
-                      <h3 className="text-xl font-bold text-white mb-2 cursor-pointer hover:text-orange-400 transition-colors" onClick={() => navigate(`/game/${ratedGame.game_slug}`)}>{ratedGame.game_data.name}</h3>
+                      <h3 className="text-xl font-bold text-white mb-2 cursor-pointer hover:text-orange-400 transition-colors" onClick={() => navigate(`/game/${gameToSlug(Number(ratedGame.game_id), ratedGame.game_data.name)}`)}>{ratedGame.game_data.name}</h3>
                       <p className="text-gray-400">
                         {ratedGame.game_data.developers?.[0]?.name || 'Développeur inconnu'} • {ratedGame.game_data.released ? new Date(ratedGame.game_data.released).getFullYear() : 'N/A'}
                       </p>
