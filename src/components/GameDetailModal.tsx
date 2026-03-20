@@ -816,6 +816,7 @@ const reviewVal =
 
 setTempRating(ratingVal);
 setTempReview(reviewVal);
+setSelectedPlatform((userRating as any)?.platform || "");
 setIsEditingRating(true);
   };
 
@@ -1278,6 +1279,9 @@ setTempReview(reviewVal);
                           <span className="text-yellow-400 font-bold text-lg">{userRating.rating.toFixed(1)} ★</span>
                         </div>
 
+                        {(userRating as any).platform && (
+                          <div className="text-sm text-gray-300">🎮 Joué sur : <span className="text-white font-medium">{(userRating as any).platform}</span></div>
+                        )}
                         {userRating.review_text && (
                           <div className="bg-gray-800 rounded-lg p-4">
                             <p className="text-sm text-gray-400 mb-1">Ma critique :</p>
