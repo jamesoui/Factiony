@@ -77,9 +77,6 @@ const PremiumView: React.FC = () => {
         </div>
         <div className="flex items-center justify-center gap-3 mb-4">
           <h1 className="text-4xl font-bold text-center">Factiony Premium</h1>
-          <span className="bg-white/20 backdrop-blur-sm text-yellow-100 text-sm font-semibold px-3 py-1 rounded-full border border-white/30">
-            À venir
-          </span>
         </div>
         <p className="text-xl text-center text-yellow-100">{t('premium.subtitle')}</p>
       </div>
@@ -113,13 +110,12 @@ const PremiumView: React.FC = () => {
         </div>
 
         <button
-          disabled
-          className="w-full bg-gray-600 text-gray-400 py-4 px-6 rounded-xl font-bold text-lg cursor-not-allowed flex items-center justify-center space-x-2 opacity-50"
-        >
-          <Crown className="h-6 w-6" />
-          <span>Passer à Premium</span>
-          <span className="ml-2 text-sm font-normal">(Bientôt disponible)</span>
-        </button>
+  onClick={handleSubscribe}
+  className="w-full bg-gradient-to-r from-yellow-600 via-orange-600 to-red-600 hover:opacity-90 text-white py-4 px-6 rounded-xl font-bold text-lg flex items-center justify-center space-x-2 transition-opacity"
+>
+  <Crown className="h-6 w-6" />
+  <span>Passer à Premium — 2,99€/mois</span>
+</button>
       </div>
     </div>
   )
