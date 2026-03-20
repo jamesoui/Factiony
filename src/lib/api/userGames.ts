@@ -92,11 +92,9 @@ export async function getUserStats(userId: string): Promise<UserStats> {
         });
       }
 
-      if (game.game_data.platforms && Array.isArray(game.game_data.platforms)) {
-        game.game_data.platforms.forEach((platform: any) => {
-          const name = typeof platform === "string" ? platform : platform?.platform?.name ?? platform?.name;
-          if (name) platformBreakdown[name] = (platformBreakdown[name] || 0) + 1;
-        });
+      if ((game as any).platform) {
+        const p = (game as any).platform;
+        platformBreakdown[p] = (platformBreakdown[p] || 0) + 1;
       }
 
       if (game.game_data.released) {
