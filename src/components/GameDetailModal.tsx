@@ -190,6 +190,7 @@ const GameDetailModal: React.FC<GameDetailModalProps> = ({
   const [tempRating, setTempRating] = useState(0);
   const [tempReview, setTempReview] = useState('');
   const [isSubmittingRating, setIsSubmittingRating] = useState(false);
+  const [selectedPlatform, setSelectedPlatform] = useState<string>('');
   const [factionyAvgRating, setFactionyAvgRating] = useState<number | null>(null);
   const [showAllTags, setShowAllTags] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
@@ -762,8 +763,10 @@ const GameDetailModal: React.FC<GameDetailModalProps> = ({
           .from('game_ratings')
           .update({
             rating: tempRating,
-            review_text: tempReview,
-            updated_at: new Date().toISOString()
+rating: tempRating,
+review_text: tempReview,
+platform: selectedPlatform || null,
+updated_at: new Date().toISOString()
           })
           .eq('user_id', user.id)
           .eq('game_id', game.id.toString());
@@ -779,7 +782,8 @@ const GameDetailModal: React.FC<GameDetailModalProps> = ({
             game_id: game.id.toString(),
             game_slug: gameSlug,
             rating: tempRating,
-            review_text: tempReview
+review_text: tempReview,
+platform: selectedPlatform || null
           });
 
         if (error) throw error;
@@ -1282,12 +1286,29 @@ setTempReview(reviewVal);
                         )}
 
                         <div className="flex gap-3">
-                          <button
-                            onClick={handleStartEditing}
-                            className="bg-orange-600 hover:bg-orange-700 text-white py-2 px-4 rounded-lg font-medium transition-colors"
-                          >
-                            Modifier
-                          </button>
+  <button
+    onClick={handleStartEditing}
+    className="bg-orange-600 hover:bg-orange-700 text-white py-2 px-4 rounded-lg font-medium transition-colors"
+  >
+    Modifier
+  </button>
+  <button
+    onClick={async () => {
+      if (!confirm('Supprimer votre note et critique ?')) return;
+      await supabase
+        .from('game_ratings')
+        .delete()
+        .eq('user_id', user!.id)
+        .eq('game_id', game.id.toString());
+      setUserRating(null);
+      setTempRating(0);
+      setTempReview('');
+      window.dispatchEvent(new CustomEvent('reviewSaved'));
+    }}
+    className="bg-red-700 hover:bg-red-800 text-white py-2 px-4 rounded-lg font-medium transition-colors"
+  >
+    Supprimer
+  </button>
                           {(() => {
                             console.log('ShareReviewButton render check:', {
                               hasUserRatingId: !!userRating?.id,
@@ -1321,6 +1342,34 @@ setTempReview(reviewVal);
                           </div>
                         </div>
 
+{(() => {
+  const platformsList = (fullGame?.platforms || game?.platforms || [])
+    .map((p: any) => typeof p === 'string' ? p : p?.platform?.name)
+    .filter(Boolean);
+  return platformsList.length > 0 ? (
+    <div>
+      <label className="block text-sm font-medium text-white mb-2">
+        Sur quelle plateforme avez-vous joué ?
+      </label>
+      <div className="flex flex-wrap gap-2">
+        {platformsList.map((platform: string) => (
+          <button
+            key={platform}
+            type="button"
+            onClick={() => setSelectedPlatform(prev => prev === platform ? '' : platform)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
+              selectedPlatform === platform
+                ? 'bg-orange-600 border-orange-500 text-white'
+                : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600'
+            }`}
+          >
+            {platform}
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null;
+})()}
                         <div>
                           <label className="block text-sm font-medium text-white mb-2">
                             Votre critique (optionnel)

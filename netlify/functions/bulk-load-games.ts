@@ -1,144 +1,188 @@
-// netlify/functions/bulk-load-games.ts
-
 import { createClient } from "@supabase/supabase-js";
+import dotenv from "dotenv";
 
-export const handler = async () => {
-  try {
-    console.log("[BULK] Starting bulk load of games...");
+dotenv.config();
 
-    const SUPABASE_URL = process.env.SUPABASE_URL;
-    const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const RAWG_API_KEY = process.env.RAWG_API_KEY;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const RAWG_API_KEY = process.env.RAWG_API_KEY;
 
-    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !RAWG_API_KEY) {
-      throw new Error("Missing env vars");
-    }
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+async function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-    // Définir les différentes requêtes RAWG pour couvrir tous les types de jeux
-    const queries = [
-      // Top rated all-time
-      `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&ordering=-rating&page_size=100&page=1`,
-      `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&ordering=-rating&page_size=100&page=2`,
-      `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&ordering=-rating&page_size=100&page=3`,
+async function fetchFromRawg(query) {
+  const res = await fetch(query);
+  if (!res.ok) throw new Error(`RAWG error: ${res.status}`);
+  return res.json();
+}
 
-      // Top 2024-2026
-      `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&dates=2024-01-01,2026-12-31&ordering=-rating&page_size=100&page=1`,
-      `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&dates=2024-01-01,2026-12-31&ordering=-rating&page_size=100&page=2`,
+async function main() {
+  console.log("🚀 Starting bulk load of 6900 games from 12 sources...\n");
 
-      // Most anticipated 2025-2026
-      `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&dates=2025-01-01,2026-12-31&ordering=-added&page_size=100&page=1`,
-      `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&dates=2025-01-01,2026-12-31&ordering=-added&page_size=100&page=2`,
+  let allGames = [];
+  let totalQueries = 0;
 
-      // Recently added
-      `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&ordering=-added&page_size=100&page=1`,
-      `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&ordering=-added&page_size=100&page=2`,
-    ];
+  const sources = [
+    {
+      name: "Top-rated all-time",
+      pages: 10,
+      query: (page) => `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&ordering=-rating&page_size=100&page=${page}`,
+    },
+    {
+      name: "Top-rated 2024-2026",
+      pages: 20,
+      query: (page) => `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&dates=2024-01-01,2026-12-31&ordering=-rating&page_size=100&page=${page}`,
+    },
+    {
+      name: "Upcoming 2026-2029",
+      pages: 5,
+      query: (page) => `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&dates=2026-01-01,2029-12-31&ordering=-released&page_size=100&page=${page}`,
+    },
+    {
+      name: "Recently added",
+      pages: 5,
+      query: (page) => `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&ordering=-added&page_size=100&page=${page}`,
+    },
+    {
+      name: "Action games",
+      pages: 4,
+      query: (page) => `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&genres=action&ordering=-rating&page_size=100&page=${page}`,
+    },
+    {
+      name: "RPG games",
+      pages: 4,
+      query: (page) => `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&genres=role-playing-games-rpg&ordering=-rating&page_size=100&page=${page}`,
+    },
+    {
+      name: "Indie games",
+      pages: 4,
+      query: (page) => `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&genres=indie&ordering=-rating&page_size=100&page=${page}`,
+    },
+    {
+      name: "Strategy games",
+      pages: 4,
+      query: (page) => `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&genres=strategy&ordering=-rating&page_size=100&page=${page}`,
+    },
+    {
+      name: "Adventure games",
+      pages: 4,
+      query: (page) => `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&genres=adventure&ordering=-rating&page_size=100&page=${page}`,
+    },
+    {
+      name: "Simulation games",
+      pages: 3,
+      query: (page) => `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&genres=simulation&ordering=-rating&page_size=100&page=${page}`,
+    },
+    {
+      name: "Sports games",
+      pages: 3,
+      query: (page) => `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&genres=sports&ordering=-rating&page_size=100&page=${page}`,
+    },
+    {
+      name: "Puzzle games",
+      pages: 3,
+      query: (page) => `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&genres=puzzle&ordering=-rating&page_size=100&page=${page}`,
+    },
+  ];
 
-    let totalAdded = 0;
-    let totalSkipped = 0;
-    let totalFailed = 0;
+  // Fetch from all sources
+  for (const source of sources) {
+    console.log(`\n📥 Fetching: ${source.name}`);
 
-    // Fetch all games from all queries
-    for (const query of queries) {
+    for (let page = 1; page <= source.pages; page++) {
       try {
-        console.log(`[BULK] Fetching: ${query.split('&')[1]}`);
+        totalQueries++;
+        const query = source.query(page);
+        const data = await fetchFromRawg(query);
 
-        const res = await fetch(query);
-        if (!res.ok) {
-          console.warn(`[BULK] Failed to fetch: ${res.status}`);
-          continue;
+        if (data.results && data.results.length > 0) {
+          allGames.push(...data.results);
+          console.log(
+            `   ✅ Page ${page}/${source.pages}: ${data.results.length} games (total: ${allGames.length})`
+          );
         }
 
-        const { results: games } = await res.json();
-
-        if (!games || games.length === 0) {
-          continue;
-        }
-
-        console.log(`[BULK] Processing ${games.length} games from query`);
-
-        for (const game of games) {
-          try {
-            // Vérifier si jeu existe déjà
-            const { data: existing, error: checkError } = await supabase
-              .from("games")
-              .select("id")
-              .eq("id", game.id)
-              .single();
-
-            if (!checkError && existing) {
-              totalSkipped++;
-              continue;
-            }
-
-            // Ajouter le jeu
-            const { error: insertError } = await supabase
-              .from("games")
-              .insert({
-                id: game.id,
-                slug: game.slug,
-                name: game.name,
-                released: game.released,
-                description_raw: game.description,
-                genres: game.genres || [],
-                platforms: game.platforms || [],
-                tags: game.tags || [],
-                metacritic: game.metacritic,
-                playtime: game.playtime,
-                background_image: game.background_image,
-                cover: game.cover_image,
-                rating: game.rating,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-              });
-
-            if (!insertError) {
-              totalAdded++;
-              if (totalAdded % 50 === 0) {
-                console.log(`[BULK] Progress: ${totalAdded} added`);
-              }
-            } else {
-              totalFailed++;
-            }
-          } catch (e) {
-            console.error(`[BULK] Error processing game ${game.id}:`, e);
-            totalFailed++;
-          }
-
-          // Rate limiting
-          await new Promise((resolve) => setTimeout(resolve, 50));
-        }
+        await sleep(2000); // Rate limit RAWG
       } catch (e) {
-        console.error(`[BULK] Error fetching query:`, e);
+        console.error(`   ❌ Error page ${page}:`, e.message);
       }
-
-      // Pause between major queries
-      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
-
-    console.log(
-      `[BULK] Complete. Added: ${totalAdded}, Skipped: ${totalSkipped}, Failed: ${totalFailed}`
-    );
-
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        success: true,
-        added: totalAdded,
-        skipped: totalSkipped,
-        failed: totalFailed,
-        message: `Bulk load complete: ${totalAdded} new games added`
-      })
-    };
-  } catch (error) {
-    console.error("[BULK] Error:", error);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({
-        error: error instanceof Error ? error.message : "Unknown error"
-      })
-    };
   }
-};
+
+  console.log(`\n📊 Total games fetched: ${allGames.length}`);
+  console.log(`📊 Total queries: ${totalQueries}\n`);
+
+  // Déduplicate
+  const uniqueMap = new Map();
+  allGames.forEach((g) => {
+    if (!uniqueMap.has(g.id)) {
+      uniqueMap.set(g.id, g);
+    }
+  });
+
+  const uniqueGames = Array.from(uniqueMap.values());
+  console.log(`🎯 Unique games after dedup: ${uniqueGames.length}\n`);
+
+  // Check existants
+  console.log("🔍 Checking existing games in DB...");
+  const { data: existingGames } = await supabase
+    .from("games")
+    .select("id");
+
+  const existingIds = new Set(existingGames?.map((g) => g.id) || []);
+  const newGames = uniqueGames.filter((g) => !existingIds.has(g.id));
+
+  console.log(`✅ New games to add: ${newGames.length}\n`);
+
+  if (newGames.length === 0) {
+    console.log("⚠️  All games already in DB!");
+    return;
+  }
+
+  // Insert by batch
+  const batchSize = 100;
+  let totalAdded = 0;
+
+  console.log("📤 Uploading to DB...\n");
+
+  for (let i = 0; i < newGames.length; i += batchSize) {
+    const batch = newGames.slice(i, i + batchSize);
+    const progress = Math.round((i / newGames.length) * 100);
+
+    const gamesToAdd = batch.map((game) => ({
+      id: game.id,
+      slug: game.slug,
+      name: game.name,
+      released: game.released,
+      description_raw: game.description,
+      genres: game.genres || [],
+      platforms: game.platforms || [],
+      tags: game.tags || [],
+      metacritic: game.metacritic,
+      playtime: game.playtime,
+      background_image: game.background_image,
+      cover: game.cover_image,
+      rating: game.rating,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }));
+
+    const { error } = await supabase.from("games").insert(gamesToAdd);
+
+    if (error) {
+      console.error(`❌ Batch error:`, error);
+    } else {
+      totalAdded += batch.length;
+      console.log(`   [${progress}%] Batch ${Math.floor(i / batchSize) + 1}: ${batch.length} added`);
+    }
+  }
+
+  console.log(`\n🎉 DONE! Added ${totalAdded} games to DB`);
+  console.log(`📊 Final DB size: ${existingIds.size + totalAdded} games`);
+  console.log(`⏱️  Total time: ~${Math.round((totalQueries * 2) / 60)} minutes for fetching`);
+}
+
+main().catch(console.error);
