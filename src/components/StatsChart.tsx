@@ -98,7 +98,7 @@ const StatsChart: React.FC<StatsChartProps> = ({
           <div key={key} className="flex-1 flex flex-col items-center">
             <div
               className={`w-full ${colorClasses[color as keyof typeof colorClasses]} rounded-t`}
-              style={{ height: `${(value / maxValue) * 100}%` }}
+              style={{ height: `${Math.max((value / maxValue) * 100, 8)}%` }}
             ></div>
             <span className="text-xs text-gray-400 mt-2 transform -rotate-45 origin-left">
               {key}
