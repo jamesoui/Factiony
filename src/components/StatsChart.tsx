@@ -93,12 +93,12 @@ const StatsChart: React.FC<StatsChartProps> = ({
         <Calendar className="h-5 w-5 text-gray-400" />
       </div>
       
-      <div className="flex items-end space-x-2 h-32">
+      <div className="flex items-end space-x-2 h-32 relative">
         {Object.entries(data).map(([key, value]) => (
           <div key={key} className="flex-1 flex flex-col items-center">
             <div
-              className={`w-full ${colorClasses[color as keyof typeof colorClasses]} rounded-t`}
-              style={{ height: `${Math.max((value / maxValue) * 100, 8)}%` }}
+              className={`w-full ${colorClasses[color as keyof typeof colorClasses] || "bg-blue-500"} rounded-t`}
+              style={{ height: `${Math.max((value / maxValue) * 100, 8)}%`, minHeight: "4px" }}
             ></div>
             <span className="text-xs text-gray-400 mt-2 transform -rotate-45 origin-left">
               {key}
