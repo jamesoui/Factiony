@@ -86,14 +86,16 @@ export async function getUserStats(userId: string): Promise<UserStats> {
   ratedGames.forEach((game) => {
     if (game.game_data) {
       if (game.game_data.genres && Array.isArray(game.game_data.genres)) {
-        game.game_data.genres.forEach((genre: string) => {
-          genreBreakdown[genre] = (genreBreakdown[genre] || 0) + 1;
+        game.game_data.genres.forEach((genre: any) => {
+          const name = typeof genre === "string" ? genre : genre?.name;
+          if (name) genreBreakdown[name] = (genreBreakdown[name] || 0) + 1;
         });
       }
 
       if (game.game_data.platforms && Array.isArray(game.game_data.platforms)) {
-        game.game_data.platforms.forEach((platform: string) => {
-          platformBreakdown[platform] = (platformBreakdown[platform] || 0) + 1;
+        game.game_data.platforms.forEach((platform: any) => {
+          const name = typeof platform === "string" ? platform : platform?.platform?.name ?? platform?.name;
+          if (name) platformBreakdown[name] = (platformBreakdown[name] || 0) + 1;
         });
       }
 
