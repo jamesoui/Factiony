@@ -68,10 +68,9 @@ const { user } = useAuth()
   // Liste des avantages Premium
   const premiumFeatures = [
     { icon: Star, title: t('premium.detailedRating'), description: t('premium.detailedRatingDesc') },
-    { icon: Users, title: t('premium.fullCustomization'), description: t('premium.fullCustomizationDesc') },
-    { icon: Users, title: t('premium.unlimitedLists'), description: t('premium.unlimitedListsDesc') },
+    { icon: Users, title: t('premium.fullCustomization'), description: 'Bannière personnalisée' },
+    { icon: Users, title: t('premium.unlimitedLists'), description: 'Rendez votre profil attractif en créant autant de listes que vous voulez (seulement votre Top 4 sans Premium)' },
     { icon: Mail, title: t('premium.weeklyNewsletter'), description: t('premium.weeklyNewsletterDesc') },
-    { icon: Heart, title: t('premium.supportBuff'), description: t('premium.supportBuffDesc') },
     { icon: Users, title: t('premium.adFree'), description: t('premium.adFreeDesc') },
     { icon: Star, title: t('premium.discordAccess'), description: t('premium.discordAccessDesc') }
   ]
