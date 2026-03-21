@@ -188,31 +188,31 @@ const PremiumForumView: React.FC = () => {
 
   const handleLikeComment = async (commentId: string, isLiked: boolean) => {
     if (!user) return
-    const comment = comments.find(c => c.id === commentId)
-    if (!comment) return
-    const newLikes = isLiked ? comment.likes - 1 : comment.likes + 1
-
     if (isLiked) {
       await supabase.from('premium_forum_likes').delete().eq('user_id', user.id).eq('target_id', commentId).eq('target_type', 'comment')
+      await supabase.rpc('decrement_comment_likes', { comment_id: commentId })
     } else {
       await supabase.from('premium_forum_likes').insert({ user_id: user.id, target_id: commentId, target_type: 'comment' })
+      await supabase.rpc('increment_comment_likes', { comment_id: commentId })
     }
-    await supabase.from('premium_forum_comments').update({ likes_count: newLikes }).eq('id', commentId)
+    const comment = comments.find(c => c.id === commentId)
+    if (!comment) return
+    const newLikes = isLiked ? Math.max(0, comment.likes - 1) : comment.likes + 1
     setComments(comments.map(c => c.id === commentId ? { ...c, isLiked: !isLiked, likes: newLikes } : c))
   }
 
   const handleLikeReply = async (commentId: string, replyId: string, isLiked: boolean) => {
     if (!user) return
-    const reply = comments.find(c => c.id === commentId)?.replies?.find(r => r.id === replyId)
-    if (!reply) return
-    const newLikes = isLiked ? reply.likes - 1 : reply.likes + 1
-
     if (isLiked) {
       await supabase.from('premium_forum_likes').delete().eq('user_id', user.id).eq('target_id', replyId).eq('target_type', 'reply')
+      await supabase.rpc('decrement_reply_likes', { reply_id: replyId })
     } else {
       await supabase.from('premium_forum_likes').insert({ user_id: user.id, target_id: replyId, target_type: 'reply' })
+      await supabase.rpc('increment_reply_likes', { reply_id: replyId })
     }
-    await supabase.from('premium_forum_replies').update({ likes_count: newLikes }).eq('id', replyId)
+    const reply = comments.find(c => c.id === commentId)?.replies?.find(r => r.id === replyId)
+    if (!reply) return
+    const newLikes = isLiked ? Math.max(0, reply.likes - 1) : reply.likes + 1
     setComments(comments.map(c => c.id === commentId
       ? { ...c, replies: (c.replies || []).map(r => r.id === replyId ? { ...r, isLiked: !isLiked, likes: newLikes } : r) }
       : c
