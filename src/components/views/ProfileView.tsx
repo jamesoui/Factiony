@@ -91,11 +91,24 @@ const ProfileView: React.FC<ProfileViewProps> = ({ onViewChange, onUserClick }) 
       setFollowingCount(followingCountData);
 
       const { data: sections } = await supabase
-        .from('profile_sections')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('position');
-      setProfileSections(sections || []);
+  .from('profile_sections')
+  .select('*')
+  .eq('user_id', user.id)
+  .order('position');
+
+if (sections && sections.length > 0) {
+  const sectionsWithGames = await Promise.all(sections.map(async (section) => {
+    if (!section.game_ids || section.game_ids.length === 0) return { ...section, games: [] };
+    const { data: gamesData } = await supabase
+      .from('games')
+      .select('id, name, background_image')
+      .in('id', section.game_ids);
+    return { ...section, games: gamesData || [] };
+  }));
+  setProfileSections(sectionsWithGames);
+} else {
+  setProfileSections([]);
+}
     } catch (error) {
       console.error('Erreur chargement données utilisateur:', error);
     } finally {
