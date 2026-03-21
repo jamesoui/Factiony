@@ -168,21 +168,23 @@ const PremiumForumView: React.FC = () => {
   }
 
   const handleLikeThread = async (threadId: string, isLiked: boolean) => {
-    if (!user) return
-    const thread = threads.find(t => t.id === threadId)
-    if (!thread) return
-    const newLikes = isLiked ? Math.max(0, thread.likes - 1) : thread.likes + 1
+  if (!user) return
 
-    if (isLiked) {
-      await supabase.from('premium_forum_likes').delete().eq('user_id', user.id).eq('target_id', threadId).eq('target_type', 'thread')
-    } else {
-      await supabase.from('premium_forum_likes').insert({ user_id: user.id, target_id: threadId, target_type: 'thread' })
-    }
-    await supabase.from('premium_forum_threads').update({ likes_count: newLikes }).eq('id', threadId)
-
-    setThreads(threads.map(t => t.id === threadId ? { ...t, isLiked: !isLiked, likes: newLikes } : t))
-    setSelectedThread(prev => prev?.id === threadId ? { ...prev, isLiked: !isLiked, likes: newLikes } : prev)
+  if (isLiked) {
+    await supabase.from('premium_forum_likes').delete().eq('user_id', user.id).eq('target_id', threadId).eq('target_type', 'thread')
+    await supabase.rpc('decrement_thread_likes', { thread_id: threadId })
+  } else {
+    await supabase.from('premium_forum_likes').insert({ user_id: user.id, target_id: threadId, target_type: 'thread' })
+    await supabase.rpc('increment_thread_likes', { thread_id: threadId })
   }
+
+  const thread = threads.find(t => t.id === threadId)
+  if (!thread) return
+  const newLikes = isLiked ? Math.max(0, thread.likes - 1) : thread.likes + 1
+
+  setThreads(threads.map(t => t.id === threadId ? { ...t, isLiked: !isLiked, likes: newLikes } : t))
+  setSelectedThread(prev => prev?.id === threadId ? { ...prev, isLiked: !isLiked, likes: newLikes } : prev)
+}
 
   const handleLikeComment = async (commentId: string, isLiked: boolean) => {
     if (!user) return
