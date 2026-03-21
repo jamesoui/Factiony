@@ -194,6 +194,7 @@ const GameDetailModal: React.FC<GameDetailModalProps> = ({
   const [factionyAvgRating, setFactionyAvgRating] = useState<number | null>(null);
   const [showAllTags, setShowAllTags] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
+  const [detailedRatings, setDetailedRatings] = useState<Record<string, number>>({})
 
   // --- SEO: title onglet (évite "Loading...") ---
   const gameName =
