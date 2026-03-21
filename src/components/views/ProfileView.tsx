@@ -299,57 +299,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({ onViewChange, onUserClick }) 
         )}
       </div>
 
-      {/* Statistiques détaillées */}
-      {showStats && userStats && Object.keys(userStats.genreBreakdown).length > 0 && (
-        <div className="space-y-6 mb-8">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {Object.keys(userStats.genreBreakdown).length > 0 && (
-              <StatsChart title={t('profile.genreBreakdown')} data={userStats.genreBreakdown} type="pie" color="orange" />
-            )}
-            {Object.keys(userStats.platformBreakdown).length > 0 && (
-              <StatsChart title={t('profile.platformsUsed')} data={userStats.platformBreakdown} type="bar" color="blue" />
-            )}
-          </div>
-          {Object.keys(userStats.yearlyStats).length > 0 && (
-            <StatsChart title={t('profile.yearlyActivity')} data={userStats.yearlyStats} type="line" color="green" />
-          )}
-        </div>
-      )}
-
-      {/* Activité récente */}
-      <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
-        <h2 className="text-xl font-bold text-white mb-6">{t('profile.recentActivity')}</h2>
-        {recentActivity.length > 0 ? (
-          <div className="space-y-4">
-            {recentActivity.map((activity) => {
-              if (!activity.game_data) return null;
-              const daysAgo = Math.floor((Date.now() - new Date(activity.updated_at).getTime()) / (1000 * 60 * 60 * 24));
-              return (
-                <div key={activity.id} className="flex items-center space-x-4 p-4 bg-gray-700 rounded-lg">
-                  <img src={activity.game_data.background_image || ''} alt={activity.game_data.name} className="w-16 h-20 bg-gray-600 rounded flex-shrink-0 object-cover" />
-                  <div className="flex-1">
-                    <p className="text-white font-medium">A noté {activity.game_data.name}</p>
-                    <p className="text-gray-400 text-sm flex items-center space-x-2">
-                      <span>Il y a {daysAgo === 0 ? "aujourd'hui" : `${daysAgo} jour${daysAgo > 1 ? 's' : ''}`}</span>
-                      <span>•</span>
-                      <span className="flex items-center">
-                        <Star className="h-3 w-3 fill-yellow-400 text-yellow-400 mr-1" />
-                        {activity.rating}/5
-                      </span>
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            <Calendar className="h-12 w-12 text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-400">Aucune activité récente</p>
-          </div>
-        )}
-      </div>
-
       {/* Sections personnalisées Premium */}
       {user.isPremium && (
         <div className="mt-8">
@@ -459,6 +408,57 @@ const ProfileView: React.FC<ProfileViewProps> = ({ onViewChange, onUserClick }) 
           )}
         </div>
       )}
+
+      {/* Statistiques détaillées */}
+      {showStats && userStats && Object.keys(userStats.genreBreakdown).length > 0 && (
+        <div className="space-y-6 mb-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {Object.keys(userStats.genreBreakdown).length > 0 && (
+              <StatsChart title={t('profile.genreBreakdown')} data={userStats.genreBreakdown} type="pie" color="orange" />
+            )}
+            {Object.keys(userStats.platformBreakdown).length > 0 && (
+              <StatsChart title={t('profile.platformsUsed')} data={userStats.platformBreakdown} type="bar" color="blue" />
+            )}
+          </div>
+          {Object.keys(userStats.yearlyStats).length > 0 && (
+            <StatsChart title={t('profile.yearlyActivity')} data={userStats.yearlyStats} type="line" color="green" />
+          )}
+        </div>
+      )}
+
+      {/* Activité récente */}
+      <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+        <h2 className="text-xl font-bold text-white mb-6">{t('profile.recentActivity')}</h2>
+        {recentActivity.length > 0 ? (
+          <div className="space-y-4">
+            {recentActivity.map((activity) => {
+              if (!activity.game_data) return null;
+              const daysAgo = Math.floor((Date.now() - new Date(activity.updated_at).getTime()) / (1000 * 60 * 60 * 24));
+              return (
+                <div key={activity.id} className="flex items-center space-x-4 p-4 bg-gray-700 rounded-lg">
+                  <img src={activity.game_data.background_image || ''} alt={activity.game_data.name} className="w-16 h-20 bg-gray-600 rounded flex-shrink-0 object-cover" />
+                  <div className="flex-1">
+                    <p className="text-white font-medium">A noté {activity.game_data.name}</p>
+                    <p className="text-gray-400 text-sm flex items-center space-x-2">
+                      <span>Il y a {daysAgo === 0 ? "aujourd'hui" : `${daysAgo} jour${daysAgo > 1 ? 's' : ''}`}</span>
+                      <span>•</span>
+                      <span className="flex items-center">
+                        <Star className="h-3 w-3 fill-yellow-400 text-yellow-400 mr-1" />
+                        {activity.rating}/5
+                      </span>
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <Calendar className="h-12 w-12 text-gray-600 mx-auto mb-4" />
+            <p className="text-gray-400">Aucune activité récente</p>
+          </div>
+        )}
+      </div>
 
       {/* Modal de détail du jeu */}
       {selectedGame && (
