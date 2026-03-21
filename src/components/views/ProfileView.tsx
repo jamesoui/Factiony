@@ -293,7 +293,7 @@ if (sections && sections.length > 0) {
                 description: ratedGame.game_data.description_raw || ''
               };
               return (
-                <<div key={ratedGame.id} className="relative">
+                <div key={ratedGame.id} className="relative">
   <div className="absolute top-2 left-2 z-10 bg-black/70 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">
     {topRatedGames.indexOf(ratedGame) + 1}
   </div>
