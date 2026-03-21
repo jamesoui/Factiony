@@ -172,10 +172,10 @@ const PremiumForumView: React.FC = () => {
 
   if (isLiked) {
     await supabase.from('premium_forum_likes').delete().eq('user_id', user.id).eq('target_id', threadId).eq('target_type', 'thread')
-    await supabase.rpc('decrement_thread_likes', { thread_id: threadId })
+    await supabase.rpc('decrement_thread_likes', { p_id: threadId })
   } else {
     await supabase.from('premium_forum_likes').insert({ user_id: user.id, target_id: threadId, target_type: 'thread' })
-    await supabase.rpc('increment_thread_likes', { thread_id: threadId })
+    await supabase.rpc('increment_thread_likes', { p_id: threadId })
   }
 
   const thread = threads.find(t => t.id === threadId)
@@ -190,10 +190,10 @@ const PremiumForumView: React.FC = () => {
     if (!user) return
     if (isLiked) {
       await supabase.from('premium_forum_likes').delete().eq('user_id', user.id).eq('target_id', commentId).eq('target_type', 'comment')
-      await supabase.rpc('decrement_comment_likes', { comment_id: commentId })
+      await supabase.rpc('decrement_comment_likes', { p_id: commentId })
     } else {
       await supabase.from('premium_forum_likes').insert({ user_id: user.id, target_id: commentId, target_type: 'comment' })
-      await supabase.rpc('increment_comment_likes', { comment_id: commentId })
+      await supabase.rpc('increment_comment_likes', { p_id: commentId })
     }
     const comment = comments.find(c => c.id === commentId)
     if (!comment) return
@@ -205,10 +205,10 @@ const PremiumForumView: React.FC = () => {
     if (!user) return
     if (isLiked) {
       await supabase.from('premium_forum_likes').delete().eq('user_id', user.id).eq('target_id', replyId).eq('target_type', 'reply')
-      await supabase.rpc('decrement_reply_likes', { reply_id: replyId })
+      await supabase.rpc('decrement_reply_likes', { p_id: replyId })
     } else {
       await supabase.from('premium_forum_likes').insert({ user_id: user.id, target_id: replyId, target_type: 'reply' })
-      await supabase.rpc('increment_reply_likes', { reply_id: replyId })
+      await supabase.rpc('increment_reply_likes', { p_id: replyId })
     }
     const reply = comments.find(c => c.id === commentId)?.replies?.find(r => r.id === replyId)
     if (!reply) return
