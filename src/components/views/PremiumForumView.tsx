@@ -171,7 +171,7 @@ const PremiumForumView: React.FC = () => {
     if (!user) return
     const thread = threads.find(t => t.id === threadId)
     if (!thread) return
-    const newLikes = isLiked ? thread.likes - 1 : thread.likes + 1
+    const newLikes = isLiked ? Math.max(0, thread.likes - 1) : thread.likes + 1
 
     if (isLiked) {
       await supabase.from('premium_forum_likes').delete().eq('user_id', user.id).eq('target_id', threadId).eq('target_type', 'thread')
