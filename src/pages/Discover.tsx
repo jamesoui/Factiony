@@ -5,8 +5,10 @@ import { getTrendingGames, getTopRatedGamesHybrid } from "../lib/api/ratings";
 import { fetchGamesByIds, searchPopularGames } from "../lib/api/games";
 import FriendsActivitySection from "../components/FriendsActivitySection";
 import AdBanner from "../components/ads/AdBanner";
+import { useAuth } from '../contexts/AuthContext';
 
 export default function Discover() {
+  const { user } = useAuth();
   const [topRated, setTopRated] = useState<Game[] | null>(null);
   const [anticipated, setAnticipated] = useState<Game[] | null>(null);
   const [trending, setTrending] = useState<Game[] | null>(null);
@@ -240,7 +242,7 @@ export default function Discover() {
       </section>
 
       {/* AdSense (Home) — entre Top Rated et Activité des follows */}
-      <AdBanner slot="5751553228" />
+      {!user?.isPremium && <AdBanner slot="5751553228" />}
 
       <FriendsActivitySection />
 

@@ -2,6 +2,7 @@ import React from 'react'
 import { Crown, Star, Users, Mail, Heart } from 'lucide-react'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { createClient } from '@supabase/supabase-js'
+import { useAuth } from '../../contexts/AuthContext'
 
 // 🧠 Connexion Supabase
 const supabase = createClient(
@@ -11,7 +12,13 @@ const supabase = createClient(
 
 const PremiumView: React.FC = () => {
   const { t } = useLanguage()
+const { user } = useAuth()
 
+  const handleUnsubscribe = () => {
+    if (window.confirm("Voulez-vous vraiment annuler votre abonnement Premium ? Vous conservez l'accès jusqu'à la fin du mois en cours.")) {
+      alert("Pour annuler votre abonnement, rendez-vous sur votre espace client Stripe. Votre accès Premium reste actif jusqu'à la fin de la période déjà payée.")
+    }
+  }
   const handleSubscribe = async () => {
     try {
       // 1️⃣ Récupère l'utilisateur connecté
@@ -109,13 +116,23 @@ const PremiumView: React.FC = () => {
           <div className="text-sm text-gray-500 mt-2">{t('premium.cancelAnytime')}</div>
         </div>
 
-        <button
-  onClick={handleSubscribe}
-  className="w-full bg-gradient-to-r from-yellow-600 via-orange-600 to-red-600 hover:opacity-90 text-white py-4 px-6 rounded-xl font-bold text-lg flex items-center justify-center space-x-2 transition-opacity"
->
-  <Crown className="h-6 w-6" />
-  <span>Passer à Premium — 2,99€/mois</span>
-</button>
+        {user?.isPremium ? (
+  <button
+    onClick={handleUnsubscribe}
+    className="w-full bg-gray-700 hover:bg-gray-600 text-gray-300 py-4 px-6 rounded-xl font-bold text-lg flex items-center justify-center space-x-2 transition-colors border border-gray-600"
+  >
+    <Crown className="h-6 w-6 text-yellow-500" />
+    <span>Vous êtes Premium ✓ — Gérer l'abonnement</span>
+  </button>
+) : (
+  <button
+    onClick={handleSubscribe}
+    className="w-full bg-gradient-to-r from-yellow-600 via-orange-600 to-red-600 hover:opacity-90 text-white py-4 px-6 rounded-xl font-bold text-lg flex items-center justify-center space-x-2 transition-opacity"
+  >
+    <Crown className="h-6 w-6" />
+    <span>Passer à Premium — 2,99€/mois</span>
+  </button>
+)}
       </div>
     </div>
   )

@@ -1345,6 +1345,39 @@ setTempReview(reviewVal);
                             )}
                           </div>
                         </div>
+{user?.isPremium && (
+  <div className="space-y-3 bg-gray-800/50 rounded-lg p-4 border border-yellow-600/30">
+    <p className="text-sm font-medium text-yellow-400 flex items-center gap-2">
+      <Crown className="h-4 w-4" /> Notes détaillées Premium (Optionnelles)
+    </p>
+    {[
+      { key: 'gameplay', label: '🎮 Gameplay' },
+      { key: 'graphics', label: '🎨 Graphismes' },
+      { key: 'story', label: '📖 Histoire' },
+      { key: 'music', label: '🎵 Musique' },
+    ].map(({ key, label }) => (
+      <div key={key} className="flex items-center justify-between">
+        <span className="text-sm text-gray-300 w-28">{label}</span>
+        <div className="flex items-center space-x-1">
+          {Array.from({ length: 5 }, (_, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setDetailedRatings(prev => ({ ...prev, [key]: i + 1 }))}
+              className="focus:outline-none"
+            >
+              <Star className={`h-5 w-5 transition-colors ${
+                i < (detailedRatings[key] || 0)
+                  ? 'fill-yellow-400 text-yellow-400'
+                  : 'text-gray-600 hover:text-yellow-400'
+              }`} />
+            </button>
+          ))}
+        </div>
+      </div>
+    ))}
+  </div>
+)}
 
 {(() => {
   const platformsList = (fullGame?.platforms || game?.platforms || [])
@@ -1409,7 +1442,7 @@ setTempReview(reviewVal);
                     )}
                   </div>
                 )}
-<AdBanner slot="9076652778" className="my-4" />
+{!user?.isPremium && <AdBanner slot="9076652778" className="my-4" />}
                 {/* Media Section - Screenshots and Videos */}
                 {!loadingFullGame && fullGame && (
                   <div className="mt-6 space-y-6">

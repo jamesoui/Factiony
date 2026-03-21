@@ -342,7 +342,7 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
         </div>
       )}
 
-<AdBanner slot="5751553228" className="my-4" />
+{!user?.isPremium && <AdBanner slot="5751553228" className="my-4" />}
 
       {user && (
         <FriendsActivitySection

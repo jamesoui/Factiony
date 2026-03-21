@@ -8,6 +8,7 @@ import TopGamesSection from '../TopGamesSection';
 import ActiveFiltersChips from '../ActiveFiltersChips';
 import { Game } from '../../types';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { searchGames as searchGamesAPI, getGamesWithFilters } from '../../apiClient';
 import { GameData } from '../../lib/api/games';
 import { computeGlobalRating } from '../../lib/utils/ratings';
@@ -31,6 +32,7 @@ interface SearchViewProps {
 
 const SearchView: React.FC<SearchViewProps> = ({ initialQuery = '', initialFilters, onViewChange, onUserClick }) => {
   const { t } = useLanguage();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [showFilters, setShowFilters] = useState(false);
@@ -771,7 +773,7 @@ const SearchView: React.FC<SearchViewProps> = ({ initialQuery = '', initialFilte
           </div>
 
           {displayedGames.length > SPLIT_INDEX && (
-  <AdBanner slot="9798609443" className="my-3" />
+  {!user?.isPremium && <AdBanner slot="9798609443" className="my-3" />}
 )}
 
           {secondBatch.length > 0 && (

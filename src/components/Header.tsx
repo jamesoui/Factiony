@@ -207,6 +207,16 @@ const Header: React.FC = () => {
                     <span>{t('nav.settings')}</span>
                   </Link>
 
+                  {user?.isPremium ? (
+                  <Link
+                    to="/premium"
+                    onClick={() => setShowUserMenu(false)}
+                    className="w-full text-left px-4 py-2 text-sm text-yellow-400 hover:bg-gray-700 flex items-center space-x-2"
+                  >
+                    <Crown className="h-4 w-4" />
+                    <span>Premium ✓</span>
+                  </Link>
+                ) : (
                   <Link
                     to="/premium"
                     onClick={() => setShowUserMenu(false)}
@@ -215,6 +225,7 @@ const Header: React.FC = () => {
                     <Crown className="h-4 w-4" />
                     <span>Devenir Premium</span>
                   </Link>
+                )}
 
                   <div className="border-t border-gray-700 mt-1">
                     <button

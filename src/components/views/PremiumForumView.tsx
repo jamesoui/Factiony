@@ -42,77 +42,14 @@ const PremiumForumView: React.FC = () => {
   const { t } = useLanguage()
   const [sortBy, setSortBy] = useState<'recent' | 'popular' | 'trending'>('recent')
   const [searchQuery, setSearchQuery] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [showCreateThread, setShowCreateThread] = useState(false)
   const [newThreadTitle, setNewThreadTitle] = useState('')
   const [newThreadCategory, setNewThreadCategory] = useState('general')
   const [newThreadContent, setNewThreadContent] = useState('')
   const [selectedThread, setSelectedThread] = useState<ForumThread | null>(null)
   const [newComment, setNewComment] = useState('')
-  const [threads, setThreads] = useState<ForumThread[]>([
-    {
-      id: '1',
-      title: 'Les jeux indie qui méritent plus d\'attention en 2024',
-      author: 'IndieLover42',
-      authorAvatar: 'https://images.pexels.com/photos/614810/pexels-photo-614810.jpeg?auto=compress&cs=tinysrgb&w=100',
-      category: 'Recommandations Exclusives',
-      replies: 45,
-      likes: 128,
-      views: 892,
-      lastActivity: 'Il y a 2h',
-      isPinned: true,
-      isLiked: false,
-      comments: [
-        {
-          id: 'c1',
-          author: 'GameExplorer',
-          authorAvatar: 'https://images.pexels.com/photos/1040880/pexels-photo-1040880.jpeg?auto=compress&cs=tinysrgb&w=100',
-          content: 'Excellente liste ! J\'ajouterais également "Hollow Knight" qui est un chef-d\'œuvre.',
-          timestamp: 'Il y a 1h',
-          likes: 12,
-          isLiked: false
-        }
-      ]
-    },
-    {
-      id: '2',
-      title: 'Session co-op ce weekend - Qui est partant?',
-      author: 'GameMaster2024',
-      authorAvatar: 'https://images.pexels.com/photos/1516680/pexels-photo-1516680.jpeg?auto=compress&cs=tinysrgb&w=100',
-      category: 'Événements & Rencontres',
-      replies: 23,
-      likes: 67,
-      views: 345,
-      lastActivity: 'Il y a 4h',
-      isLiked: false,
-      comments: []
-    },
-    {
-      id: '3',
-      title: 'Vos attentes pour les annonces du Summer Game Fest?',
-      author: 'HypeTrainConductor',
-      authorAvatar: 'https://images.pexels.com/photos/1239291/pexels-photo-1239291.jpeg?auto=compress&cs=tinysrgb&w=100',
-      category: 'Discussion Générale',
-      replies: 89,
-      likes: 203,
-      views: 1534,
-      lastActivity: 'Il y a 6h',
-      isLiked: true,
-      comments: []
-    },
-    {
-      id: '4',
-      title: 'Conseils pour débuter dans le speedrun',
-      author: 'SpeedDemon',
-      authorAvatar: 'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=100',
-      category: 'Discussion Générale',
-      replies: 34,
-      likes: 92,
-      views: 678,
-      lastActivity: 'Il y a 1j',
-      isLiked: false,
-      comments: []
-    }
-  ])
+  const [threads, setThreads] = useState<ForumThread[]>([])
 
   if (!user?.isPremium) {
     return (
@@ -217,10 +154,12 @@ const PremiumForumView: React.FC = () => {
     setNewComment('')
   }
 
-  const filteredThreads = threads.filter(thread =>
-    thread.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    thread.category.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const filteredThreads = threads.filter(thread => {
+    const matchSearch = thread.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      thread.category.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchCategory = selectedCategory ? thread.category === categories.find(c => c.id === selectedCategory)?.name : true
+    return matchSearch && matchCategory
+  })
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 bg-gray-900 min-h-screen">
@@ -256,7 +195,8 @@ const PremiumForumView: React.FC = () => {
             return (
               <div
                 key={category.id}
-                className="bg-gray-800 border border-gray-700 rounded-xl p-6 hover:border-yellow-600 transition-all duration-200 cursor-pointer group"
+                onClick={() => setSelectedCategory(selectedCategory === category.id ? null : category.id)}
+                className={`bg-gray-800 border rounded-xl p-6 hover:border-yellow-600 transition-all duration-200 cursor-pointer group ${selectedCategory === category.id ? 'border-yellow-500' : 'border-gray-700'}`}
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="bg-yellow-600 p-3 rounded-lg group-hover:bg-yellow-500 transition-colors">
