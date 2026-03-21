@@ -293,13 +293,16 @@ if (sections && sections.length > 0) {
                 description: ratedGame.game_data.description_raw || ''
               };
               return (
-                <div key={ratedGame.id} className="relative">
-                  <GameCard game={game} onClick={() => handleGameClick(game)} />
-                  <div className="absolute top-2 right-2 bg-yellow-500 text-yellow-900 px-2 py-1 rounded-full text-xs font-bold flex items-center space-x-1">
-                    <Star className="h-3 w-3 fill-current" />
-                    <span>{ratedGame.rating}</span>
-                  </div>
-                </div>
+                <<div key={ratedGame.id} className="relative">
+  <div className="absolute top-2 left-2 z-10 bg-black/70 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">
+    {topRatedGames.indexOf(ratedGame) + 1}
+  </div>
+  <GameCard game={game} onClick={() => handleGameClick(game)} />
+  <div className="absolute top-2 right-2 bg-yellow-500 text-yellow-900 px-2 py-1 rounded-full text-xs font-bold flex items-center space-x-1">
+    <Star className="h-3 w-3 fill-current" />
+    <span>{ratedGame.rating}</span>
+  </div>
+</div>
               );
             })}
           </div>
@@ -335,11 +338,14 @@ if (sections && sections.length > 0) {
                 </button>
               </div>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                {(section.games || []).map((game: any) => (
-                  <div key={game.id} className="cursor-pointer" onClick={() => navigate(`/game/${gameToSlug(Number(game.id), game.name)}`)}>
-                    <SimpleGameCard game={{ ...game, images: { cover_url: game.background_image } }} />
-                  </div>
-                ))}
+                {(section.games || []).map((game: any, idx: number) => (
+  <div key={game.id} className="relative cursor-pointer" onClick={() => navigate(`/game/${gameToSlug(Number(game.id), game.name)}`)}>
+    <div className="absolute top-2 left-2 z-10 bg-black/70 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">
+      {idx + 1}
+    </div>
+    <SimpleGameCard game={{ ...game, images: { cover_url: game.background_image } }} />
+  </div>
+))}
               </div>
             </div>
           ))}
