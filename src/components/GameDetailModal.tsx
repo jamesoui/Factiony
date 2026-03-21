@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useLocation, useSearchParams } from 'react-router-dom';
-import { X, Star, Calendar, Monitor, Users, Heart, Plus, ExternalLink, Clock, Trophy, MessageCircle, Share2, Play, Bell, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Star, Calendar, Monitor, Users, Heart, Plus, ExternalLink, Clock, Trophy, MessageCircle, Share2, Play, Bell, ChevronLeft, ChevronRight, Crown } from 'lucide-react';
 import { Game } from '../types';
 import StarRating from './StarRating';
 import ReviewModal from './ReviewModal';
