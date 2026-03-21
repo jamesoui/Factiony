@@ -103,7 +103,10 @@ if (sections && sections.length > 0) {
       .from('games')
       .select('id, name, background_image')
       .in('id', section.game_ids);
-    return { ...section, games: gamesData || [] };
+    const orderedGames = section.game_ids
+  .map((id: string) => (gamesData || []).find((g: any) => String(g.id) === String(id)))
+  .filter(Boolean);
+return { ...section, games: orderedGames };
   }));
   setProfileSections(sectionsWithGames);
 } else {
@@ -371,49 +374,65 @@ if (sections && sections.length > 0) {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">Ajouter des jeux ({newSectionGames.length}/4)</label>
-                    {newSectionGames.length < 4 && (
-                      <div className="relative mb-2">
-                        <input
-                          type="text"
-                          value={newSectionGameQuery}
-                          onChange={e => { setNewSectionGameQuery(e.target.value); searchGamesForSection(e.target.value); }}
-                          placeholder="Rechercher un jeu..."
-                          className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                        />
-                        {searchResults.length > 0 && (
-                          <div className="absolute z-10 w-full bg-gray-700 border border-gray-600 rounded-lg mt-1 max-h-48 overflow-y-auto">
-                            {searchResults.map(game => (
-                              <button
-                                key={game.id}
-                                onClick={() => {
-                                  if (newSectionGames.length < 4 && !newSectionGames.find(g => g.id === game.id)) {
-                                    setNewSectionGames([...newSectionGames, game]);
-                                  }
-                                  setNewSectionGameQuery('');
-                                  setSearchResults([]);
-                                }}
-                                className="w-full text-left px-4 py-2 hover:bg-gray-600 text-white text-sm flex items-center gap-3"
-                              >
-                                {game.background_image && <img src={game.background_image} className="w-8 h-8 rounded object-cover" />}
-                                {game.name}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    <div className="flex flex-wrap gap-2">
-                      {newSectionGames.map(game => (
-                        <div key={game.id} className="flex items-center gap-2 bg-gray-700 rounded-lg px-3 py-1">
-                          <span className="text-sm text-white">{game.name}</span>
-                          <button onClick={() => setNewSectionGames(newSectionGames.filter(g => g.id !== game.id))} className="text-gray-400 hover:text-red-400">
-                            <X className="h-3 w-3" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+  <label className="block text-sm font-medium text-gray-300 mb-3">Jeux (dans l'ordre)</label>
+  <div className="space-y-2 mb-3">
+    {[0, 1, 2, 3].map(slotIdx => (
+      <div key={slotIdx} className="flex items-center gap-3">
+        <div className="w-6 h-6 rounded-full bg-gray-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+          {slotIdx + 1}
+        </div>
+        {newSectionGames[slotIdx] ? (
+          <div className="flex-1 flex items-center justify-between bg-gray-700 rounded-lg px-3 py-2">
+            <div className="flex items-center gap-2">
+              {newSectionGames[slotIdx].background_image && (
+                <img src={newSectionGames[slotIdx].background_image} className="w-8 h-8 rounded object-cover" />
+              )}
+              <span className="text-sm text-white">{newSectionGames[slotIdx].name}</span>
+            </div>
+            <button onClick={() => setNewSectionGames(newSectionGames.filter((_, i) => i !== slotIdx))} className="text-gray-400 hover:text-red-400">
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex-1 h-10 border border-dashed border-gray-600 rounded-lg flex items-center px-3 text-gray-500 text-sm">
+            Emplacement {slotIdx + 1}
+          </div>
+        )}
+      </div>
+    ))}
+  </div>
+  {newSectionGames.length < 4 && (
+    <div className="relative">
+      <input
+        type="text"
+        value={newSectionGameQuery}
+        onChange={e => { setNewSectionGameQuery(e.target.value); searchGamesForSection(e.target.value); }}
+        placeholder="Rechercher un jeu à ajouter..."
+        className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+      />
+      {searchResults.length > 0 && (
+        <div className="absolute z-10 w-full bg-gray-700 border border-gray-600 rounded-lg mt-1 max-h-48 overflow-y-auto">
+          {searchResults.map(game => (
+            <button
+              key={game.id}
+              onClick={() => {
+                if (newSectionGames.length < 4 && !newSectionGames.find(g => g.id === game.id)) {
+                  setNewSectionGames([...newSectionGames, game]);
+                }
+                setNewSectionGameQuery('');
+                setSearchResults([]);
+              }}
+              className="w-full text-left px-4 py-2 hover:bg-gray-600 text-white text-sm flex items-center gap-3"
+            >
+              {game.background_image && <img src={game.background_image} className="w-8 h-8 rounded object-cover" />}
+              {game.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )}
+</div>
                   <button
                     onClick={handleCreateSection}
                     disabled={!newSectionTitle.trim() || newSectionGames.length === 0}
