@@ -772,8 +772,8 @@ const SearchView: React.FC<SearchViewProps> = ({ initialQuery = '', initialFilte
             {firstBatch.map(renderGameItem)}
           </div>
 
-          {displayedGames.length > SPLIT_INDEX && (
-  {!user?.isPremium && <AdBanner slot="9798609443" className="my-3" />}
+          {displayedGames.length > SPLIT_INDEX && !user?.isPremium && (
+  <AdBanner slot="9798609443" className="my-3" />
 )}
 
           {secondBatch.length > 0 && (
