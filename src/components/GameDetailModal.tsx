@@ -761,14 +761,17 @@ const GameDetailModal: React.FC<GameDetailModalProps> = ({
         // Update existing rating
         console.log('Updating existing rating');
         const { error } = await supabase
-          .from('game_ratings')
-          .update({
-            rating: tempRating,
-rating: tempRating,
-review_text: tempReview,
-platform: selectedPlatform || null,
-updated_at: new Date().toISOString()
-          })
+  .from('game_ratings')
+  .update({
+    rating: tempRating,
+    review_text: tempReview,
+    platform: selectedPlatform || null,
+    updated_at: new Date().toISOString(),
+    rating_gameplay: detailedRatings.gameplay || null,
+    rating_graphics: detailedRatings.graphics || null,
+    rating_story: detailedRatings.story || null,
+    rating_music: detailedRatings.music || null,
+  })
           .eq('user_id', user.id)
           .eq('game_id', game.id.toString());
 
@@ -777,15 +780,19 @@ updated_at: new Date().toISOString()
         // Insert new rating
         console.log('Inserting new rating');
         const { error } = await supabase
-          .from('game_ratings')
-          .insert({
-            user_id: user.id,
-            game_id: game.id.toString(),
-            game_slug: gameSlug,
-            rating: tempRating,
-review_text: tempReview,
-platform: selectedPlatform || null
-          });
+  .from('game_ratings')
+  .insert({
+    user_id: user.id,
+    game_id: game.id.toString(),
+    game_slug: gameSlug,
+    rating: tempRating,
+    review_text: tempReview,
+    platform: selectedPlatform || null,
+    rating_gameplay: detailedRatings.gameplay || null,
+    rating_graphics: detailedRatings.graphics || null,
+    rating_story: detailedRatings.story || null,
+    rating_music: detailedRatings.music || null,
+  });
 
         if (error) throw error;
       }
@@ -1289,6 +1296,26 @@ setTempReview(reviewVal);
                             <p className="text-white">{userRating.review_text}</p>
                           </div>
                         )}
+                        {(userRating.rating_gameplay || userRating.rating_graphics || userRating.rating_story || userRating.rating_music) && (
+  <div className="bg-gray-800 rounded-lg p-4 space-y-2">
+    <p className="text-sm text-gray-400 mb-2">Notes détaillées :</p>
+    {[
+      { key: 'rating_gameplay', label: '🎮 Gameplay' },
+      { key: 'rating_graphics', label: '🎨 Graphismes' },
+      { key: 'rating_story', label: '📖 Histoire' },
+      { key: 'rating_music', label: '🎵 Musique' },
+    ].map(({ key, label }) => userRating[key] ? (
+      <div key={key} className="flex items-center justify-between">
+        <span className="text-sm text-gray-300">{label}</span>
+        <div className="flex items-center space-x-1">
+          {Array.from({ length: 5 }, (_, i) => (
+            <Star key={i} className={`h-4 w-4 ${i < userRating[key] ? 'fill-yellow-400 text-yellow-400' : 'text-gray-600'}`} />
+          ))}
+        </div>
+      </div>
+    ) : null)}
+  </div>
+)}
 
                         <div className="flex gap-3">
   <button

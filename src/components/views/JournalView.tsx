@@ -291,11 +291,31 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
                   </div>
 
                   {ratedGame.review_text && (
-                    <div className="bg-gray-700 rounded-lg p-4">
-                      <p className="text-sm text-gray-500 mb-2">Ma critique</p>
-                      <p className="text-gray-300 leading-relaxed">{ratedGame.review_text}</p>
-                    </div>
-                  )}
+  <div className="bg-gray-700 rounded-lg p-4">
+    <p className="text-sm text-gray-500 mb-2">Ma critique</p>
+    <p className="text-gray-300 leading-relaxed">{ratedGame.review_text}</p>
+  </div>
+)}
+{(ratedGame.rating_gameplay || ratedGame.rating_graphics || ratedGame.rating_story || ratedGame.rating_music) && (
+  <div className="bg-gray-700 rounded-lg p-4 mt-3 space-y-2">
+    <p className="text-sm text-gray-500 mb-2">Notes détaillées</p>
+    {[
+      { key: 'rating_gameplay', label: '🎮 Gameplay' },
+      { key: 'rating_graphics', label: '🎨 Graphismes' },
+      { key: 'rating_story', label: '📖 Histoire' },
+      { key: 'rating_music', label: '🎵 Musique' },
+    ].map(({ key, label }) => ratedGame[key] ? (
+      <div key={key} className="flex items-center justify-between">
+        <span className="text-sm text-gray-300">{label}</span>
+        <div className="flex items-center space-x-1">
+          {Array.from({ length: 5 }, (_, i) => (
+            <Star key={i} className={`h-4 w-4 ${i < ratedGame[key] ? 'fill-yellow-400 text-yellow-400' : 'text-gray-600'}`} />
+          ))}
+        </div>
+      </div>
+    ) : null)}
+  </div>
+)}
                 </div>
               </div>
             </div>
