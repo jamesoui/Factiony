@@ -1,6 +1,4 @@
-// netlify/edge-functions/ai-reco.ts - ALBUS AGENTIC OPTIMIZED V1
-
-import { createClient } from "@supabase/supabase-js";
+// netlify/edge-functions/ai-reco.ts - ALBUS AGENTIC (NO SUPABASE CLIENT)
 
 function jsonResponse(body: any, status = 200, corsHeaders: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
@@ -21,7 +19,6 @@ const TAG_IDS: Record<string, number> = {
   "simulation": 14, "fighting": 6, "combat": 6,
 };
 
-// Token tracking
 interface TokenUsage {
   planning: number;
   rawg: number;
@@ -34,19 +31,19 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-async function fetchUserData(supabase: any, userId: string) {
+async function fetchUserData(supabaseUrl: string, supabaseKey: string, userId: string) {
   try {
-    const { data: signals } = await supabase
-      .from("game_signals")
-      .select("game_id, signal_type, value")
-      .eq("user_id", userId)
-      .limit(50);
+    const [signalsRes, commentsRes] = await Promise.all([
+      fetch(`${supabaseUrl}/rest/v1/game_signals?user_id=eq.${userId}&limit=50`, {
+        headers: { "apikey": supabaseKey, "Authorization": `Bearer ${supabaseKey}` },
+      }),
+      fetch(`${supabaseUrl}/rest/v1/game_comments?user_id=eq.${userId}&limit=20`, {
+        headers: { "apikey": supabaseKey, "Authorization": `Bearer ${supabaseKey}` },
+      }),
+    ]);
 
-    const { data: comments } = await supabase
-      .from("game_comments")
-      .select("game_id, content, rating")
-      .eq("user_id", userId)
-      .limit(20);
+    const signals = signalsRes.ok ? await signalsRes.json() : [];
+    const comments = commentsRes.ok ? await commentsRes.json() : [];
 
     return {
       signals: signals || [],
@@ -61,9 +58,7 @@ async function fetchUserData(supabase: any, userId: string) {
 
 async function webSearch(query: string, mistralKey: string): Promise<string> {
   try {
-    const searchPrompt = `Cherche rapidement: "${query}"
-    
-Résume en 2-3 phrases les infos gaming pertinentes trouvées.`;
+    const searchPrompt = `Cherche rapidement: "${query}"\n\nRésume en 2-3 phrases les infos gaming pertinentes.`;
 
     const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
       method: "POST",
@@ -86,32 +81,31 @@ Résume en 2-3 phrases les infos gaming pertinentes trouvées.`;
   return "";
 }
 
-async function checkTokenLimit(supabase: any, userId: string, tier: string, tokensNeeded: number): Promise<boolean> {
-  if (!userId) return true; // Anonymous users have no limit
+async function checkTokenLimit(supabaseUrl: string, supabaseKey: string, userId: string, tier: string, tokensNeeded: number): Promise<boolean> {
+  if (!userId) return true;
 
   const monthStart = new Date();
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
 
   try {
-    const { data: usage } = await supabase
-      .from("token_usage")
-      .select("tokens_used")
-      .eq("user_id", userId)
-      .gte("created_at", monthStart.toISOString())
-      .single();
+    const res = await fetch(`${supabaseUrl}/rest/v1/token_usage?user_id=eq.${userId}&month_start=gte.${monthStart.toISOString()}`, {
+      headers: { "apikey": supabaseKey, "Authorization": `Bearer ${supabaseKey}` },
+    });
 
+    const data = res.ok ? await res.json() : [];
+    const usage = data[0];
     const tokensUsed = usage?.tokens_used ?? 0;
     const limit = tier === "premium" ? 100000 : 15000;
 
     return tokensUsed + tokensNeeded <= limit;
   } catch (e) {
     console.error("[ALBUS] Token check error:", e);
-    return true; // Fail open
+    return true;
   }
 }
 
-async function recordTokenUsage(supabase: any, userId: string, tokens: number) {
+async function recordTokenUsage(supabaseUrl: string, supabaseKey: string, userId: string, tokens: number) {
   if (!userId) return;
 
   const monthStart = new Date();
@@ -119,14 +113,19 @@ async function recordTokenUsage(supabase: any, userId: string, tokens: number) {
   monthStart.setHours(0, 0, 0, 0);
 
   try {
-    await supabase
-      .from("token_usage")
-      .upsert({
+    await fetch(`${supabaseUrl}/rest/v1/token_usage`, {
+      method: "POST",
+      headers: { 
+        "apikey": supabaseKey, 
+        "Authorization": `Bearer ${supabaseKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
         user_id: userId,
-        month_start: monthStart.toISOString(),
+        month_start: monthStart.toISOString().split('T')[0],
         tokens_used: tokens,
-      }, { onConflict: "user_id,month_start" })
-      .update({ tokens_used: tokens }, { onConflict: "user_id,month_start" });
+      }),
+    });
   } catch (e) {
     console.error("[ALBUS] Token recording error:", e);
   }
@@ -173,9 +172,7 @@ export default async (request: Request) => {
     return jsonResponse({ error: "Missing query" }, 400, corsHeaders);
   }
 
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const queryLower = query.toLowerCase();
-  const tokenUsage: TokenUsage = { planning: 0, rawg: 0, web: 0, reasoning: 0, total: 0 };
 
   console.log("[ALBUS] Query:", query, "User:", userPseudo, "Tier:", tier);
 
@@ -197,13 +194,13 @@ export default async (request: Request) => {
   const isGameplayQuestion = gameplayKeywords.some(word => queryLower.includes(word));
 
   if (isGameplayQuestion) {
-    return handleGameplayQuestion(query, userPseudo, userId, tier, MISTRAL_API_KEY, supabase, BASE_URL, corsHeaders);
+    return handleGameplayQuestion(query, userPseudo, userId, tier, MISTRAL_API_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, BASE_URL, corsHeaders);
   } else {
-    return handleRecommendationAgent(query, userPseudo, userId, tier, RAWG_API_KEY, MISTRAL_API_KEY, BASE_URL, supabase, corsHeaders);
+    return handleRecommendationAgent(query, userPseudo, userId, tier, RAWG_API_KEY, MISTRAL_API_KEY, BASE_URL, SUPABASE_URL, SUPABASE_ANON_KEY, corsHeaders);
   }
 };
 
-async function handleGameplayQuestion(query: string, userPseudo: string, userId: string, tier: string, mistralKey: string, supabase: any, baseUrl: string, corsHeaders: Record<string, string>) {
+async function handleGameplayQuestion(query: string, userPseudo: string, userId: string, tier: string, mistralKey: string, supabaseUrl: string, supabaseKey: string, baseUrl: string, corsHeaders: Record<string, string>) {
   const systemPrompt = `Tu es Albus, assistant gaming IA de Factiony.
 
 RÈGLES:
@@ -236,7 +233,7 @@ RÈGLES:
     const cleanResponse = response.replace(/\*\*?/g, "");
 
     const tokensUsed = estimateTokens(userPrompt + response);
-    if (userId) await recordTokenUsage(supabase, userId, tokensUsed);
+    if (userId) await recordTokenUsage(supabaseUrl, supabaseKey, userId, tokensUsed);
 
     return jsonResponse({ query, user_pseudo: userPseudo, mode: "gameplay", answer: cleanResponse, tokens_used: tokensUsed }, 200, corsHeaders);
   } catch (e) {
@@ -245,13 +242,12 @@ RÈGLES:
   }
 }
 
-async function handleRecommendationAgent(query: string, userPseudo: string, userId: string, tier: string, rawgKey: string, mistralKey: string, baseUrl: string, supabase: any, corsHeaders: Record<string, string>) {
+async function handleRecommendationAgent(query: string, userPseudo: string, userId: string, tier: string, rawgKey: string, mistralKey: string, baseUrl: string, supabaseUrl: string, supabaseKey: string, corsHeaders: Record<string, string>) {
   const queryLower = query.toLowerCase();
   const tokenUsage: TokenUsage = { planning: 0, rawg: 0, web: 0, reasoning: 0, total: 0 };
 
-  // ESTIMATE TOKENS FOR THIS REQUEST
   const estimatedTokens = tier === "premium" ? 3500 : 1700;
-  const hasTokens = await checkTokenLimit(supabase, userId, tier, estimatedTokens);
+  const hasTokens = await checkTokenLimit(supabaseUrl, supabaseKey, userId, tier, estimatedTokens);
 
   if (!hasTokens) {
     return jsonResponse({
@@ -261,7 +257,6 @@ async function handleRecommendationAgent(query: string, userPseudo: string, user
     }, 429, corsHeaders);
   }
 
-  // ==================== STEP 1: AGENT PLANNING ====================
   console.log("[ALBUS] Step 1: Planning...");
 
   const planningPrompt = `Tu es Albus. Plan pour recommander les meilleurs jeux.
@@ -277,7 +272,6 @@ quality:3.5`;
   let parsedTags: string[] = [];
   let platformId = null;
   let searchKeywords = "";
-  let qualityThreshold = 3.5;
 
   try {
     const planRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
@@ -335,13 +329,11 @@ quality:3.5`;
   else if (!platformId && queryLower.includes("switch")) platformId = "7";
   else if (!platformId && queryLower.includes("pc")) platformId = "4";
 
-  // ==================== STEP 2: FETCH FACTIONY USER DATA ====================
   console.log("[ALBUS] Step 2: Fetching user data...");
   
-  const userData = userId ? await fetchUserData(supabase, userId) : { signals: [], comments: [], summary: "" };
+  const userData = userId ? await fetchUserData(supabaseUrl, supabaseKey, userId) : { signals: [], comments: [], summary: "" };
   tokenUsage.rawg = estimateTokens(JSON.stringify(userData));
 
-  // ==================== STEP 3: RAWG SEARCH ====================
   console.log("[ALBUS] Step 3: Searching RAWG...");
 
   const rawgParams = new URLSearchParams();
@@ -373,16 +365,14 @@ quality:3.5`;
     }, 200, corsHeaders);
   }
 
-  // ==================== STEP 4: CONDITIONAL WEB SEARCH (OPTIMIZATION) ====================
-  // Only search web if RAWG results are insufficient or tier is premium
+  console.log("[ALBUS] Step 4: Web search...");
+  
   let webContext = "";
   if (rawgGames.length < 5) {
-    console.log("[ALBUS] Step 4: Web search...");");
     webContext = await webSearch(`${query} games review recommendations`, mistralKey);
     tokenUsage.web = estimateTokens(webContext);
   }
 
-  // ==================== STEP 5: REASONING & RECOMMENDATION ====================
   console.log("[ALBUS] Step 5: Reasoning...");
 
   const filteredGames = rawgGames
@@ -481,7 +471,7 @@ Puis une question courte. SANS ASTÉRISQUES.`;
 
     tokenUsage.total = tokenUsage.planning + tokenUsage.rawg + tokenUsage.web + tokenUsage.reasoning;
     
-    if (userId) await recordTokenUsage(supabase, userId, tokenUsage.total);
+    if (userId) await recordTokenUsage(supabaseUrl, supabaseKey, userId, tokenUsage.total);
 
     const summaryText = recs.map(r => r.title + " (" + r.why + ")").join(" / ");
 
