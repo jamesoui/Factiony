@@ -1,4 +1,4 @@
-// netlify/edge-functions/ai-reco.ts - TRUE AGENTIC ALBUS V2 (Better data merging)
+// netlify/edge-functions/ai-reco.ts - TRUE AGENTIC ALBUS V3 (OPTIMIZED - NO MERGE STEP)
 
 function jsonResponse(body: any, status = 200, corsHeaders: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
@@ -21,11 +21,9 @@ const TAG_IDS: Record<string, number> = {
 
 interface TokenUsage {
   intent_recognition: number;
-  tool_selection: number;
   web_search: number;
   rawg_search: number;
   user_data: number;
-  merging: number;
   reasoning: number;
   total: number;
 }
@@ -241,11 +239,7 @@ async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userId
     const signals = signalsRes.ok ? await signalsRes.json() : [];
     const comments = commentsRes.ok ? await commentsRes.json() : [];
 
-    // Extract genres from liked games
-    const likedGameIds = signals.map((s: any) => s.game_id);
-    let favoriteGenres: string[] = [];
     let averageRating = 0;
-
     if (comments.length > 0) {
       const ratings = comments.map((c: any) => c.rating).filter((r: any) => r);
       averageRating = ratings.length > 0 ? Math.round((ratings.reduce((a: number, b: number) => a + b, 0) / ratings.length) * 10) / 10 : 0;
@@ -253,17 +247,17 @@ async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userId
 
     const profile: UserProfile = {
       likedGames: signals,
-      favoriteGenres: favoriteGenres,
+      favoriteGenres: [],
       averageRating: averageRating,
       reviews: comments,
       summary: `
-User passion:
+USER PASSION (FACTIONY):
 - A aimé ${signals.length} jeux
 - Noté ${comments.length} jeux avec moyenne ${averageRating}/5
-- Préfère: ${favoriteGenres.length > 0 ? favoriteGenres.join(", ") : "à découvrir"}
+- Type de joueur: ${averageRating >= 4 ? "Exigeant (4+/5)" : averageRating >= 3 ? "Standard (3+/5)" : "Explorateur (tous les jeux)"}
 
-Jeux aimés (top 5): ${signals.slice(0, 5).map((s: any) => `#${s.game_id}`).join(", ")}
-Derniers avis: ${comments.slice(0, 3).map((c: any) => `"${c.content?.substring(0, 50)}..."`).join(" | ")}`,
+Jeux aimés (derniers): ${signals.slice(0, 5).map((s: any) => `#${s.game_id}`).join(", ")}
+Derniers avis: ${comments.slice(0, 3).map((c: any) => `"${c.content?.substring(0, 40)}..."`).join(" | ")}`,
     };
 
     const tokens = estimateTokens(JSON.stringify(profile));
@@ -281,79 +275,6 @@ Derniers avis: ${comments.slice(0, 3).map((c: any) => `"${c.content?.substring(0
       tokens: 0,
     };
   }
-}
-
-// ==================== STEP 5: INTELLIGENT DATA MERGING ====================
-async function mergeDataIntelligently(
-  webResults: string,
-  rawgGames: any[],
-  userProfile: UserProfile,
-  intent: Intent,
-  mistralKey: string
-): Promise<{ merged: string; tokens: number }> {
-  const prompt = `Tu es un agent data fusion gaming. MERGE intelligemment ces sources:
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-DONNÉES ACTUELLES (INTERNET):
-${webResults || "Pas de données récentes"}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-DONNÉES RAWG (${rawgGames.length} jeux disponibles):
-${JSON.stringify(rawgGames.slice(0, 12).map(g => ({
-  name: g.name,
-  rating: g.rating,
-  genres: g.genres?.map((x: any) => x.name).join(", "),
-  released: g.released,
-})))}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PROFIL UTILISATEUR (FACTIONY):
-${userProfile.summary}
-
-Jeux favoris de cet user: ${userProfile.likedGames.length}
-Moyenne des notes: ${userProfile.averageRating}/5
-Genres préférés: ${userProfile.favoriteGenres.length > 0 ? userProfile.favoriteGenres.join(", ") : "Variés"}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-INTENT:
-- Type: ${intent.type}
-- Temporal: ${intent.temporal} (IMPORTANT: Si "this_week", PRIORISE jeux récents)
-- Platform: ${intent.platform || "Toutes"}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-TASK:
-Crée un RÉSUMÉ COHÉRENT qui:
-1. Combine données internet + RAWG + profil user
-2. Si temporal=this_week → PRIORITIZE jeux sorties récentes
-3. Filtre par goûts utilisateur (ses genres favoris + notes moyennes)
-4. Élimine jeux que l'user a déjà aimé
-5. Suggest des "découvertes" basées sur son profil
-
-Réponds EN FRANÇAIS, max 250 mots, structuré.`;
-
-  try {
-    const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: "Bearer " + mistralKey, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "mistral-large-latest",
-        temperature: 0.7,
-        max_tokens: 400,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-
-    if (res.ok) {
-      const json = await res.json();
-      const text = json?.choices?.[0]?.message?.content ?? "";
-      const tokens = estimateTokens(prompt + text);
-      return { merged: text, tokens };
-    }
-  } catch (e) {
-    console.error("[ALBUS] Data merge error:", e);
-  }
-
-  return { merged: "", tokens: 0 };
 }
 
 // ==================== MAIN HANDLER ====================
@@ -400,16 +321,14 @@ export default async (request: Request) => {
 
   const tokenUsage: TokenUsage = {
     intent_recognition: 0,
-    tool_selection: 0,
     web_search: 0,
     rawg_search: 0,
     user_data: 0,
-    merging: 0,
     reasoning: 0,
     total: 0,
   };
 
-  console.log("[ALBUS] 🤖 TRUE AGENTIC V2 - Query:", query);
+  console.log("[ALBUS] 🤖 TRUE AGENTIC V3 (OPTIMIZED) - Query:", query);
 
   // ==================== STEP 1: INTENT RECOGNITION ====================
   console.log("[ALBUS] Step 1: Intent Recognition...");
@@ -462,8 +381,8 @@ Conseils directs, pratiques. PAS D'ASTÉRISQUES.`;
     }
   }
 
-  // ==================== STEP 2: PARALLEL EXECUTION ====================
-  console.log("[ALBUS] Step 2: Tool Selection & Parallel Execution (Web + RAWG + Factiony)...");
+  // ==================== STEP 2: PARALLEL EXECUTION (Web + RAWG + Factiony) ====================
+  console.log("[ALBUS] Step 2: Parallel Execution (Web + RAWG + Factiony)...");
 
   const [webData, rawgData, userProfileData] = await Promise.all([
     intelligentWebSearch(query, intent, MISTRAL_API_KEY),
@@ -487,21 +406,8 @@ Conseils directs, pratiques. PAS D'ASTÉRISQUES.`;
     }, 200, corsHeaders);
   }
 
-  // ==================== STEP 3: INTELLIGENT DATA MERGING ====================
-  console.log("[ALBUS] Step 3: Data Merging (Web + RAWG + Factiony profile)...");
-  const { merged, tokens: mergeTokens } = await mergeDataIntelligently(
-    webData.results,
-    rawgData.games,
-    userProfileData.profile,
-    intent,
-    MISTRAL_API_KEY
-  );
-  tokenUsage.merging = mergeTokens;
-
-  console.log("[ALBUS] Merged context ready");
-
-  // ==================== STEP 4: FINAL REASONING & RECOMMENDATION ====================
-  console.log("[ALBUS] Step 4: Final Reasoning...");
+  // ==================== STEP 3: FINAL REASONING (Merge + Recommend in ONE step) ====================
+  console.log("[ALBUS] Step 3: Final Reasoning + Recommendations...");
 
   const filteredGames = rawgData.games
     .filter(g => g.rating >= 3.5)
@@ -516,25 +422,45 @@ Conseils directs, pratiques. PAS D'ASTÉRISQUES.`;
     released: g.released,
   }));
 
-  const reasoningPrompt = `Tu es Albus. Recommande 1-3 jeux OPTIMISÉS pour cet utilisateur:
+  const reasoningPrompt = `Tu es Albus. FUSIONNE INTELLIGEMMENT ces 3 sources ET recommande 1-3 jeux:
 
-CONTEXTE FUSIONNÉ:
-${merged}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📱 DONNÉES INTERNET (CETTE SEMAINE):
+${webData.results || "Pas de données récentes"}
 
-JEUX DISPONIBLES:
-${JSON.stringify(gamesData)}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎮 JEUX RAWG (${gamesData.length} disponibles, rating >= 3.5):
+${JSON.stringify(gamesData.slice(0, 12))}
 
-USER INSIGHTS (FACTIONY):
-- Jeux aimés: ${userProfileData.profile.likedGames.length}
-- Note moyenne: ${userProfileData.profile.averageRating}/5
-- Type: ${userProfileData.profile.averageRating >= 4 ? "Exigeant" : userProfileData.profile.averageRating >= 3 ? "Standard" : "Explorateur"}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+👤 PROFIL UTILISATEUR (FACTIONY):
+${userProfileData.profile.summary}
 
-CRITICAL: 
-1. N'ELIMINE PAS jeux que l'user a déjà aimé (nos recommandations diffèrent)
-2. Sinon SI temporal=this_week → PRIORISE sorties récentes
-3. Format: Nom + description courte (pourquoi c'est BON POUR LUI) + genre/rating
-4. Puis 1 question courte
-5. PAS D'ASTÉRISQUES`;
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 INTENT: temporal="${intent.temporal}"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 TASK:
+1. FUSIONNE intelligemment Internet + RAWG + User profile
+2. Si temporal=this_week → PRIORISE jeux sorties récentes (dates pertinentes)
+3. Filtre par goûts utilisateur (note moyenne ${userProfileData.profile.averageRating}/5)
+4. Recommande 1-3 jeux + EXPLIQUER pourquoi ILS MATCHENT PARFAITEMENT CET USER
+5. Puis 1 question courte
+
+CRITÈRES:
+- Rating >= 3.5
+- Match avec goûts user (genres favoris, note moyenne)
+- Dates récentes si temporal=this_week
+- Descriptions personnalisées ("Comme tu aimes...")
+
+Format recommandation:
+🎮 [Nom du jeu]
+Description courte (pourquoi c'est BON POUR LUI)
+[Genres] - [Rating]/5
+
+Puis question.
+
+⚠️ PAS D'ASTÉRISQUES. Texte simple.`;
 
   try {
     const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
@@ -607,10 +533,9 @@ CRITICAL:
         tokenUsage.web_search +
         tokenUsage.rawg_search +
         tokenUsage.user_data +
-        tokenUsage.merging +
         tokenUsage.reasoning;
 
-      console.log("[ALBUS] ✅ Recommendations:", recs.length, "| Tokens:", tokenUsage.total);
+      console.log("[ALBUS] ✅ Recommendations:", recs.length, "| Tokens:", tokenUsage.total, "| Time: FAST");
 
       return jsonResponse({
         query, user_pseudo: userPseudo, mode: "recommendation",
