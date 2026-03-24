@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabaseClient';
-import { Trash2, Plus } from 'lucide-react';
+import { Trash2, Plus, AlertCircle } from 'lucide-react';
 
 type Role = 'user' | 'assistant' | 'recommendations';
 
@@ -17,6 +17,9 @@ type AiRecoResponse = {
   answer?: string;
   has_community_context?: boolean;
   personal_message?: string;
+  tokens_used?: number;
+  error?: string;
+  message?: string;
 };
 
 type Conversation = {
@@ -36,7 +39,7 @@ export default function AssistantPage() {
       role: 'assistant',
       content: user
         ? `Salut ${firstName} 👋\n\nOn joue à quoi aujourd'hui ?\n\nJe peux te recommander des jeux basé sur tes goûts Factiony, répondre à tes questions gaming (boss, builds, strats), et utiliser la sagesse de notre communauté !`
-        : `Salut 👋\n\nJe suis l'Assistant IA de Factiony.\n\nJe peux :\n• Te recommander des jeux\n• Répondre à tes questions gaming (boss, builds, strats)\n• Utiliser ton historique pour des conseils perso\n\nConnecte-toi pour des recos personnalisées !`,
+        : `Salut 👋\n\nJe suis Albus, l'Assistant IA de Factiony.\n\nJe peux :\n• Te recommander des jeux\n• Répondre à tes questions gaming (boss, builds, strats)\n• Utiliser ton historique pour des conseils perso\n\nConnecte-toi pour des recos personnalisées !`,
     },
   ]);
 
@@ -45,6 +48,8 @@ export default function AssistantPage() {
   const [loading, setLoading] = useState(false);
   const [sessionId] = useState(() => crypto.randomUUID());
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [tokenStatus, setTokenStatus] = useState<{ used: number; limit: number; tier: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -54,8 +59,34 @@ export default function AssistantPage() {
   useEffect(() => {
     if (user?.id) {
       loadConversations();
+      loadTokenStatus();
     }
   }, [user?.id]);
+
+  async function loadTokenStatus() {
+    if (!user?.id) return;
+
+    try {
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+
+      const { data } = await supabase
+        .from('token_usage')
+        .select('tokens_used')
+        .eq('user_id', user.id)
+        .gte('created_at', monthStart.toISOString())
+        .single();
+
+      const tier = user.app_metadata?.tier === 'premium' ? 'premium' : 'free';
+      const limit = tier === 'premium' ? 100000 : 15000;
+      const used = data?.tokens_used ?? 0;
+
+      setTokenStatus({ used, limit, tier });
+    } catch (e) {
+      console.error('Token status error:', e);
+    }
+  }
 
   async function loadConversations() {
     if (!user?.id) {
@@ -132,6 +163,7 @@ export default function AssistantPage() {
         content: `Salut ${firstName} 👋\n\nOn joue à quoi aujourd'hui ?\n\nJe peux te recommander des jeux basé sur tes goûts Factiony, répondre à tes questions gaming (boss, builds, strats), et utiliser la sagesse de notre communauté !`,
       },
     ]);
+    setError(null);
   }
 
   async function sendMessage(query?: string) {
@@ -139,6 +171,7 @@ export default function AssistantPage() {
     if (!finalQuery || loading) return;
 
     if (!query) setInput('');
+    setError(null);
 
     setMessages((prev) => [...prev, { role: 'user', content: finalQuery }]);
     setLoading(true);
@@ -146,6 +179,8 @@ export default function AssistantPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
+
+      const tier = user?.app_metadata?.tier === 'premium' ? 'premium' : 'free';
 
       const res = await fetch('/api/ai-reco', {
         method: 'POST',
@@ -155,7 +190,9 @@ export default function AssistantPage() {
         },
         body: JSON.stringify({ 
           query: finalQuery,
-          user_pseudo: userPseudo 
+          user_pseudo: userPseudo,
+          user_id: user?.id || '',
+          tier: tier,
         }),
       });
 
@@ -164,6 +201,17 @@ export default function AssistantPage() {
       }
 
       const data: AiRecoResponse = await res.json();
+
+      // Check for token limit error
+      if (data.error === 'token_limit_exceeded') {
+        setError(data.message || 'Token limit reached');
+        setMessages((prev) => [...prev, { 
+          role: 'assistant', 
+          content: '⚠️ ' + (data.message || 'Limite de tokens atteinte. Upgrade à premium pour illimité!')
+        }]);
+        return;
+      }
+
       let hasAddedRecos = false;
 
       if (data.recommendations?.length) {
@@ -188,6 +236,11 @@ export default function AssistantPage() {
         setMessages((prev) => [...prev, { role: 'assistant', content: followUp }]);
       }
 
+      // Update token status
+      if (data.tokens_used) {
+        setTokenStatus(prev => prev ? { ...prev, used: prev.used + data.tokens_used } : null);
+      }
+
       if (user?.id) {
         try {
           const newMessages = [...messages, { role: 'user' as Role, content: finalQuery }];
@@ -207,9 +260,11 @@ export default function AssistantPage() {
       }
     } catch (e: any) {
       console.error('Error:', e);
+      const errorMsg = e.message || 'Erreur technique. Réessaie.';
+      setError(errorMsg);
       setMessages((prev) => [...prev, { 
         role: 'assistant', 
-        content: 'Désolé, j\'ai eu une erreur technique. Réessaie dans un instant.' 
+        content: 'Désolé, j\'ai eu une erreur. Réessaie dans un instant.' 
       }]);
     } finally {
       setLoading(false);
@@ -217,6 +272,9 @@ export default function AssistantPage() {
   }
 
   document.title = 'Albus - Assistant Gaming Factiony';
+
+  const tokenPercentage = tokenStatus ? (tokenStatus.used / tokenStatus.limit) * 100 : 0;
+  const isLowOnTokens = tokenPercentage > 80;
 
   return (
     <div className="flex h-screen bg-gray-900">
@@ -232,6 +290,25 @@ export default function AssistantPage() {
               Nouvelle conv.
             </button>
           </div>
+
+          {/* Token Status */}
+          {tokenStatus && (
+            <div className="p-4 border-b border-gray-700">
+              <p className="text-xs text-gray-400 font-semibold mb-2">Tokens {tokenStatus.tier}</p>
+              <div className="w-full bg-gray-700 rounded-full h-2 overflow-hidden">
+                <div
+                  className={`h-full transition-all ${isLowOnTokens ? 'bg-red-500' : 'bg-orange-500'}`}
+                  style={{ width: `${Math.min(tokenPercentage, 100)}%` }}
+                />
+              </div>
+              <p className="text-xs text-gray-400 mt-1">
+                {tokenStatus.used} / {tokenStatus.limit}
+              </p>
+              {isLowOnTokens && tokenStatus.tier === 'free' && (
+                <p className="text-xs text-red-400 mt-2">Presque à limite. Upgrade premium!</p>
+              )}
+            </div>
+          )}
 
           <div className="flex-1 overflow-y-auto p-4 space-y-2">
             <p className="text-xs text-gray-400 font-semibold mb-3">Historique</p>
@@ -283,6 +360,16 @@ export default function AssistantPage() {
             )}
           </div>
         </div>
+
+        {/* Error Banner */}
+        {error && (
+          <div className="bg-red-900 border-b border-red-700 p-3">
+            <div className="flex items-center gap-2 max-w-5xl mx-auto text-red-200">
+              <AlertCircle size={18} />
+              <span className="text-sm">{error}</span>
+            </div>
+          </div>
+        )}
 
         {/* Chat Area */}
         <div className="flex-1 overflow-y-auto p-4">
