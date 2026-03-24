@@ -1,4 +1,4 @@
-// netlify/edge-functions/ai-reco.ts - TRUE AGENTIC ALBUS V4 (DEEP UNDERSTANDING)
+// netlify/edge-functions/ai-reco.ts - TRUE AGENTIC ALBUS V4 FIXED (SMART DATE FILTERING)
 
 function jsonResponse(body: any, status = 200, corsHeaders: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
@@ -249,7 +249,15 @@ async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey:
   const rawgParams = new URLSearchParams();
   rawgParams.set("key", rawgKey);
   rawgParams.set("page_size", "50");
-  rawgParams.set("ordering", "-rating");
+
+  // SMART ORDERING: Si recherche temporelle → trier par date, sinon par rating
+  if (understanding.temporal.start_date) {
+    console.log("[ALBUS] Temporal search → ordering by -released (date)");
+    rawgParams.set("ordering", "-released");
+  } else {
+    console.log("[ALBUS] General search → ordering by -rating");
+    rawgParams.set("ordering", "-rating");
+  }
 
   if (platformIds.length > 0) {
     rawgParams.set("platforms", platformIds.join(","));
@@ -258,7 +266,7 @@ async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey:
     rawgParams.set("tags", parsedTags.join(","));
   }
 
-  // Date filtering
+  // Date filtering RAWG API
   if (understanding.temporal.start_date && understanding.temporal.end_date) {
     rawgParams.set("dates", `${understanding.temporal.start_date},${understanding.temporal.end_date}`);
   }
@@ -274,6 +282,27 @@ async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey:
     }
   } catch (e) {
     console.error("[ALBUS] RAWG error:", e);
+  }
+
+  // ==================== CLIENT-SIDE DATE FILTERING ====================
+  // RAWG date filtering isn't perfect, so filter again client-side
+  if (understanding.temporal.start_date && understanding.temporal.end_date && games.length > 0) {
+    const startDate = new Date(understanding.temporal.start_date);
+    const endDate = new Date(understanding.temporal.end_date);
+
+    games = games.filter(g => {
+      if (!g.released) return false;
+      const releaseDate = new Date(g.released);
+      return releaseDate >= startDate && releaseDate <= endDate;
+    });
+
+    // Sort by release date descending (most recent first)
+    games = games.sort((a, b) => {
+      if (!a.released || !b.released) return 0;
+      return new Date(b.released).getTime() - new Date(a.released).getTime();
+    });
+
+    console.log("[ALBUS] Client-side filtering:", games.length, "games in date range");
   }
 
   const tokens = estimateTokens(JSON.stringify(games.slice(0, 20)));
@@ -393,7 +422,7 @@ export default async (request: Request) => {
     total: 0,
   };
 
-  console.log("[ALBUS] 🤖 TRUE AGENTIC V4 (DEEP UNDERSTANDING) - Query:", query);
+  console.log("[ALBUS] 🤖 TRUE AGENTIC V4 FIXED (SMART DATE FILTERING) - Query:", query);
 
   // ==================== STEP 1: DEEP QUERY UNDERSTANDING ====================
   console.log("[ALBUS] Step 1: Deep Query Understanding...");
@@ -465,6 +494,15 @@ Conseils directs, pratiques. PAS D'ASTÉRISQUES.`;
   console.log("[ALBUS] User Profile:", userProfileData.profile.likedGames.length, "likes");
 
   if (rawgData.games.length === 0 && !webData.results) {
+    // Fallback: si recherche temporelle stricte, élargir
+    if (understanding.temporal.start_date) {
+      return jsonResponse({
+        query, user_pseudo: userPseudo, mode: "recommendation",
+        recommendations: [],
+        personal_message: `Aucun jeu trouvé pour ${understanding.temporal.label}. Essaie une période plus large!`,
+      }, 200, corsHeaders);
+    }
+
     return jsonResponse({
       query, user_pseudo: userPseudo, mode: "recommendation",
       recommendations: [],
@@ -475,16 +513,18 @@ Conseils directs, pratiques. PAS D'ASTÉRISQUES.`;
   // ==================== STEP 3: FINAL INTELLIGENT REASONING ====================
   console.log("[ALBUS] Step 3: Final Reasoning + Synthesis...");
 
-  const filteredGames = rawgData.games
-    .filter(g => g.rating >= 3.5)
-    .slice(0, 15);
+  // Filter by rating ONLY if NOT temporal search
+  // Temporal searches include all games (even new ones with no rating yet)
+  const filteredGames = understanding.temporal.start_date
+    ? rawgData.games.slice(0, 15) // Temporal: include all, no rating filter
+    : rawgData.games.filter(g => g.rating >= 3.5).slice(0, 15); // General: only good ratings
 
   const gamesData = filteredGames.map((g: any) => ({
     name: g.name,
     slug: g.slug,
     id: g.id,
     genres: (g.genres || []).map((x: any) => x.name).join(", "),
-    rating: g.rating,
+    rating: g.rating || "N/A",
     released: g.released,
   }));
 
@@ -498,13 +538,14 @@ Conseils directs, pratiques. PAS D'ASTÉRISQUES.`;
 - Cherche: ${understanding.themes.join(", ") || "jeux généralement"}
 ${understanding.comparisons.length > 0 ? `- Comparaisons: ${understanding.comparisons.join(", ")}` : ""}
 - Temporal: ${understanding.temporal.label}
+- Ordering: ${understanding.temporal.start_date ? "Par date (récent d'abord)" : "Par note (meilleur d'abord)"}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📱 DONNÉES INTERNET (si actuelles):
 ${webData.results || "Pas de données internet récentes"}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎮 JEUX RAWG (${gamesData.length} disponibles, rating >= 3.5):
+🎮 JEUX RAWG (${gamesData.length} disponibles, déjà triés):
 ${JSON.stringify(gamesData.slice(0, 12))}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -515,21 +556,21 @@ ${userProfileData.profile.summary}
 📋 TASK:
 1. FUSIONNE Web + RAWG + User profile intelligemment
 2. Applique ta compréhension (user mindset = ${understanding.user_mindset}, intent = ${understanding.intent})
-3. Si temporal pertinent → priorise par dates
+3. Jeux déjà triés par ${understanding.temporal.start_date ? "date" : "rating"} → respecte cet ordre
 4. Si comparaisons → explique pourquoi c'est similaire/différent
 5. Recommande 1-3 jeux EXPLIQUANT pourquoi C'EST BON POUR CET USER SPÉCIFIQUE
 6. Puis 1 question courte
 
 CRITÈRES:
-- Rating >= 3.5
+- Les jeux sont déjà filtrés/triés correctement
 - Match PROFOND avec user mindset (casual/hardcore/explorer)
 - Match avec context cherché
-- Dates si temporel
+- Dates pertinentes si temporel
 
 Format:
 🎮 [Nom du jeu]
 Description courte (POURQUOI c'est bon POUR LUI spécifiquement)
-[Genres] - [Rating]/5 - Sorti en [Année]
+[Genres] - ${understanding.temporal.start_date ? "[Date sortie]" : "[Rating]/5"}
 
 Puis question.
 
@@ -569,7 +610,7 @@ Puis question.
               slug: currentGame.slug,
               title: currentGame.name,
               summary: currentDescription.trim(),
-              why: currentGame.genres + " - " + currentGame.rating + "/5",
+              why: currentGame.genres + " - " + (currentGame.rating === "N/A" ? "Nouvelle sortie" : currentGame.rating + "/5"),
               url: BASE_URL + "/game/" + currentGame.slug + "-" + currentGame.id,
             });
             found++;
@@ -586,7 +627,7 @@ Puis question.
           slug: currentGame.slug,
           title: currentGame.name,
           summary: currentDescription.trim(),
-          why: currentGame.genres + " - " + currentGame.rating + "/5",
+          why: currentGame.genres + " - " + (currentGame.rating === "N/A" ? "Nouvelle sortie" : currentGame.rating + "/5"),
           url: BASE_URL + "/game/" + currentGame.slug + "-" + currentGame.id,
         });
       }
@@ -627,7 +668,7 @@ Puis question.
         slug: g.slug,
         title: g.name,
         summary: g.genres,
-        why: g.genres + " - " + g.rating + "/5",
+        why: g.genres + " - " + (g.rating === "N/A" ? "Nouvelle sortie" : g.rating + "/5"),
         url: BASE_URL + "/game/" + g.slug + "-" + g.id,
       })),
       personal_message: "Lequel te tente?",
