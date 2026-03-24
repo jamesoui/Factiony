@@ -1,4 +1,4 @@
-// netlify/edge-functions/ai-reco.ts - ALBUS AGENTIC (NO SUPABASE CLIENT)
+// netlify/edge-functions/ai-reco.ts - TRUE AGENTIC ALBUS V2 (Better data merging)
 
 function jsonResponse(body: any, status = 200, corsHeaders: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
@@ -20,24 +20,220 @@ const TAG_IDS: Record<string, number> = {
 };
 
 interface TokenUsage {
-  planning: number;
-  rawg: number;
-  web: number;
+  intent_recognition: number;
+  tool_selection: number;
+  web_search: number;
+  rawg_search: number;
+  user_data: number;
+  merging: number;
   reasoning: number;
   total: number;
+}
+
+interface Intent {
+  type: "recommendation" | "gameplay" | "blocked";
+  temporal: "this_week" | "recent" | "all_time" | "now";
+  needs_current_data: boolean;
+  platform?: string;
+  genres?: string[];
+  keywords?: string;
+}
+
+interface UserProfile {
+  likedGames: any[];
+  favoriteGenres: string[];
+  averageRating: number;
+  reviews: any[];
+  summary: string;
 }
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-async function fetchUserData(supabaseUrl: string, supabaseKey: string, userId: string) {
+// ==================== STEP 1: INTENT RECOGNITION ====================
+async function recognizeIntent(query: string, mistralKey: string): Promise<{ intent: Intent; tokens: number }> {
+  const prompt = `Tu es un agent IA gaming. Analyse cette requête et extrais l'INTENT.
+
+Requête: "${query}"
+
+RÉPONDS EN JSON UNIQUEMENT:
+{
+  "type": "recommendation|gameplay|blocked",
+  "temporal": "this_week|recent|all_time|now",
+  "needs_current_data": true|false,
+  "platform": "ps5|xbox|switch|pc|null",
+  "genres": ["rpg", "action"]
+}
+
+RÈGLES:
+- type="recommendation" si cherche des jeux
+- type="gameplay" si question technique (boss, build, strat)
+- type="blocked" si pas gaming
+- temporal="this_week" si dit "cette semaine", "nouveautés", "sorties"
+- temporal="recent" si "derniers", "nouveaux"
+- temporal="all_time" si pas de temps mentionné
+- needs_current_data=true si demande info ACTUELLE (cette semaine, prix actuels, etc)`;
+
+  try {
+    const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + mistralKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "mistral-large-latest",
+        temperature: 0,
+        max_tokens: 200,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+
+    if (res.ok) {
+      const json = await res.json();
+      const text = json?.choices?.[0]?.message?.content ?? "{}";
+      const tokens = estimateTokens(prompt + text);
+      
+      try {
+        const parsed = JSON.parse(text);
+        return { intent: parsed, tokens };
+      } catch (e) {
+        console.error("[ALBUS] Intent parse error:", text);
+        return { intent: { type: "recommendation", temporal: "all_time", needs_current_data: false }, tokens };
+      }
+    }
+  } catch (e) {
+    console.error("[ALBUS] Intent recognition error:", e);
+  }
+
+  return { intent: { type: "recommendation", temporal: "all_time", needs_current_data: false }, tokens: 0 };
+}
+
+// ==================== STEP 2: INTELLIGENT WEB SEARCH ====================
+async function intelligentWebSearch(query: string, intent: Intent, mistralKey: string): Promise<{ results: string; tokens: number }> {
+  if (!intent.needs_current_data) {
+    return { results: "", tokens: 0 };
+  }
+
+  let searchQuery = query;
+  if (intent.temporal === "this_week") {
+    searchQuery += " released March 2026";
+  }
+  if (intent.platform) {
+    searchQuery += " " + intent.platform;
+  }
+
+  const prompt = `Cherche: "${searchQuery}"
+
+Résume EN FRANÇAIS en 3-4 phrases:
+1. Jeux trouvés
+2. Dates de sortie si pertinent
+3. Plateformes disponibles
+4. Avis/scores`;
+
+  try {
+    const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + mistralKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "mistral-large-latest",
+        temperature: 0.5,
+        max_tokens: 400,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+
+    if (res.ok) {
+      const json = await res.json();
+      const text = json?.choices?.[0]?.message?.content ?? "";
+      const tokens = estimateTokens(prompt + text);
+      return { results: text, tokens };
+    }
+  } catch (e) {
+    console.error("[ALBUS] Web search error:", e);
+  }
+
+  return { results: "", tokens: 0 };
+}
+
+// ==================== STEP 3: SMART RAWG SEARCH ====================
+async function smartRawgSearch(query: string, intent: Intent, rawgKey: string): Promise<{ games: any[]; tokens: number }> {
+  const queryLower = query.toLowerCase();
+  let parsedTags: string[] = [];
+  let platformId = null;
+  let searchKeywords = query;
+
+  if (intent.genres && intent.genres.length > 0) {
+    parsedTags = intent.genres
+      .map((g: string) => TAG_IDS[g])
+      .filter((id: any) => id !== undefined)
+      .map((id: number) => id.toString());
+  }
+
+  if (intent.platform) {
+    if (intent.platform.includes("ps5")) platformId = "187";
+    else if (intent.platform.includes("xbox")) platformId = "186";
+    else if (intent.platform.includes("switch")) platformId = "7";
+    else if (intent.platform.includes("pc")) platformId = "4";
+  }
+
+  if (!parsedTags.length) {
+    for (const [keyword, id] of Object.entries(TAG_IDS)) {
+      if (queryLower.includes(keyword)) {
+        parsedTags = [id.toString()];
+        break;
+      }
+    }
+  }
+
+  const rawgParams = new URLSearchParams();
+  rawgParams.set("key", rawgKey);
+  rawgParams.set("page_size", "50");
+  rawgParams.set("ordering", "-rating");
+  if (platformId) rawgParams.set("platforms", platformId);
+  if (parsedTags.length > 0) rawgParams.set("tags", parsedTags.join(","));
+  if (searchKeywords) rawgParams.set("search", searchKeywords);
+
+  if (intent.temporal === "this_week") {
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    rawgParams.set("dates", weekAgo + ",2026-12-31");
+  }
+
+  let games: any[] = [];
+  try {
+    const rawgUrl = "https://api.rawg.io/api/games?" + rawgParams.toString();
+    const rawgRes = await fetch(rawgUrl);
+    if (rawgRes.ok) {
+      const rawgData = await rawgRes.json();
+      games = rawgData.results || [];
+    }
+  } catch (e) {
+    console.error("[ALBUS] RAWG error:", e);
+  }
+
+  const tokens = estimateTokens(JSON.stringify(games.slice(0, 20)));
+  return { games, tokens };
+}
+
+// ==================== STEP 4: RICH USER PROFILE ====================
+async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userId: string): Promise<{ profile: UserProfile; tokens: number }> {
+  if (!userId) {
+    return {
+      profile: {
+        likedGames: [],
+        favoriteGenres: [],
+        averageRating: 0,
+        reviews: [],
+        summary: "Nouvel utilisateur, pas d'historique",
+      },
+      tokens: 0,
+    };
+  }
+
   try {
     const [signalsRes, commentsRes] = await Promise.all([
-      fetch(`${supabaseUrl}/rest/v1/game_signals?user_id=eq.${userId}&limit=50`, {
+      fetch(`${supabaseUrl}/rest/v1/game_signals?user_id=eq.${userId}&limit=100&signal_type=eq.like`, {
         headers: { "apikey": supabaseKey, "Authorization": `Bearer ${supabaseKey}` },
       }),
-      fetch(`${supabaseUrl}/rest/v1/game_comments?user_id=eq.${userId}&limit=20`, {
+      fetch(`${supabaseUrl}/rest/v1/game_comments?user_id=eq.${userId}&limit=50`, {
         headers: { "apikey": supabaseKey, "Authorization": `Bearer ${supabaseKey}` },
       }),
     ]);
@@ -45,92 +241,122 @@ async function fetchUserData(supabaseUrl: string, supabaseKey: string, userId: s
     const signals = signalsRes.ok ? await signalsRes.json() : [];
     const comments = commentsRes.ok ? await commentsRes.json() : [];
 
-    return {
-      signals: signals || [],
-      comments: comments || [],
-      summary: `User likes ${signals?.length || 0} games, wrote ${comments?.length || 0} reviews`,
+    // Extract genres from liked games
+    const likedGameIds = signals.map((s: any) => s.game_id);
+    let favoriteGenres: string[] = [];
+    let averageRating = 0;
+
+    if (comments.length > 0) {
+      const ratings = comments.map((c: any) => c.rating).filter((r: any) => r);
+      averageRating = ratings.length > 0 ? Math.round((ratings.reduce((a: number, b: number) => a + b, 0) / ratings.length) * 10) / 10 : 0;
+    }
+
+    const profile: UserProfile = {
+      likedGames: signals,
+      favoriteGenres: favoriteGenres,
+      averageRating: averageRating,
+      reviews: comments,
+      summary: `
+User passion:
+- A aimé ${signals.length} jeux
+- Noté ${comments.length} jeux avec moyenne ${averageRating}/5
+- Préfère: ${favoriteGenres.length > 0 ? favoriteGenres.join(", ") : "à découvrir"}
+
+Jeux aimés (top 5): ${signals.slice(0, 5).map((s: any) => `#${s.game_id}`).join(", ")}
+Derniers avis: ${comments.slice(0, 3).map((c: any) => `"${c.content?.substring(0, 50)}..."`).join(" | ")}`,
     };
+
+    const tokens = estimateTokens(JSON.stringify(profile));
+    return { profile, tokens };
   } catch (e) {
-    console.error("[ALBUS] User data fetch error:", e);
-    return { signals: [], comments: [], summary: "" };
+    console.error("[ALBUS] User profile error:", e);
+    return {
+      profile: {
+        likedGames: [],
+        favoriteGenres: [],
+        averageRating: 0,
+        reviews: [],
+        summary: "Erreur chargement profil",
+      },
+      tokens: 0,
+    };
   }
 }
 
-async function webSearch(query: string, mistralKey: string): Promise<string> {
-  try {
-    const searchPrompt = `Cherche rapidement: "${query}"\n\nRésume en 2-3 phrases les infos gaming pertinentes.`;
+// ==================== STEP 5: INTELLIGENT DATA MERGING ====================
+async function mergeDataIntelligently(
+  webResults: string,
+  rawgGames: any[],
+  userProfile: UserProfile,
+  intent: Intent,
+  mistralKey: string
+): Promise<{ merged: string; tokens: number }> {
+  const prompt = `Tu es un agent data fusion gaming. MERGE intelligemment ces sources:
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DONNÉES ACTUELLES (INTERNET):
+${webResults || "Pas de données récentes"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DONNÉES RAWG (${rawgGames.length} jeux disponibles):
+${JSON.stringify(rawgGames.slice(0, 12).map(g => ({
+  name: g.name,
+  rating: g.rating,
+  genres: g.genres?.map((x: any) => x.name).join(", "),
+  released: g.released,
+})))}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PROFIL UTILISATEUR (FACTIONY):
+${userProfile.summary}
+
+Jeux favoris de cet user: ${userProfile.likedGames.length}
+Moyenne des notes: ${userProfile.averageRating}/5
+Genres préférés: ${userProfile.favoriteGenres.length > 0 ? userProfile.favoriteGenres.join(", ") : "Variés"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+INTENT:
+- Type: ${intent.type}
+- Temporal: ${intent.temporal} (IMPORTANT: Si "this_week", PRIORISE jeux récents)
+- Platform: ${intent.platform || "Toutes"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TASK:
+Crée un RÉSUMÉ COHÉRENT qui:
+1. Combine données internet + RAWG + profil user
+2. Si temporal=this_week → PRIORITIZE jeux sorties récentes
+3. Filtre par goûts utilisateur (ses genres favoris + notes moyennes)
+4. Élimine jeux que l'user a déjà aimé
+5. Suggest des "découvertes" basées sur son profil
+
+Réponds EN FRANÇAIS, max 250 mots, structuré.`;
+
+  try {
     const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: "Bearer " + mistralKey, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "mistral-large-latest",
-        temperature: 0.5,
-        max_tokens: 300,
-        messages: [{ role: "user", content: searchPrompt }],
+        temperature: 0.7,
+        max_tokens: 400,
+        messages: [{ role: "user", content: prompt }],
       }),
     });
 
     if (res.ok) {
       const json = await res.json();
-      return json?.choices?.[0]?.message?.content ?? "";
+      const text = json?.choices?.[0]?.message?.content ?? "";
+      const tokens = estimateTokens(prompt + text);
+      return { merged: text, tokens };
     }
   } catch (e) {
-    console.error("[ALBUS] Web search error:", e);
+    console.error("[ALBUS] Data merge error:", e);
   }
-  return "";
+
+  return { merged: "", tokens: 0 };
 }
 
-async function checkTokenLimit(supabaseUrl: string, supabaseKey: string, userId: string, tier: string, tokensNeeded: number): Promise<boolean> {
-  if (!userId) return true;
-
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
-
-  try {
-    const res = await fetch(`${supabaseUrl}/rest/v1/token_usage?user_id=eq.${userId}&month_start=gte.${monthStart.toISOString()}`, {
-      headers: { "apikey": supabaseKey, "Authorization": `Bearer ${supabaseKey}` },
-    });
-
-    const data = res.ok ? await res.json() : [];
-    const usage = data[0];
-    const tokensUsed = usage?.tokens_used ?? 0;
-    const limit = tier === "premium" ? 100000 : 15000;
-
-    return tokensUsed + tokensNeeded <= limit;
-  } catch (e) {
-    console.error("[ALBUS] Token check error:", e);
-    return true;
-  }
-}
-
-async function recordTokenUsage(supabaseUrl: string, supabaseKey: string, userId: string, tokens: number) {
-  if (!userId) return;
-
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
-
-  try {
-    await fetch(`${supabaseUrl}/rest/v1/token_usage`, {
-      method: "POST",
-      headers: { 
-        "apikey": supabaseKey, 
-        "Authorization": `Bearer ${supabaseKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        user_id: userId,
-        month_start: monthStart.toISOString().split('T')[0],
-        tokens_used: tokens,
-      }),
-    });
-  } catch (e) {
-    console.error("[ALBUS] Token recording error:", e);
-  }
-}
-
+// ==================== MAIN HANDLER ====================
 export default async (request: Request) => {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -172,192 +398,88 @@ export default async (request: Request) => {
     return jsonResponse({ error: "Missing query" }, 400, corsHeaders);
   }
 
-  const queryLower = query.toLowerCase();
+  const tokenUsage: TokenUsage = {
+    intent_recognition: 0,
+    tool_selection: 0,
+    web_search: 0,
+    rawg_search: 0,
+    user_data: 0,
+    merging: 0,
+    reasoning: 0,
+    total: 0,
+  };
 
-  console.log("[ALBUS] Query:", query, "User:", userPseudo, "Tier:", tier);
+  console.log("[ALBUS] 🤖 TRUE AGENTIC V2 - Query:", query);
 
-  const gamingKeywords = [
-    "jeu", "game", "gaming", "play", "jouer", "console", "ps5", "xbox", "switch", "pc",
-    "coop", "multiplayer", "solo", "rpg", "action", "stratégie", "adventure", "puzzle",
-    "shooter", "racing", "horror", "indie", "boss", "level", "build", "strat",
-    "battre", "beat", "defeat", "skill", "technique", "playstation", "nintendo", "steam",
-    "2 joueurs", "à 2", "à deux", "joueur à", "en coop", "coopératif", "multijoueur",
-  ];
+  // ==================== STEP 1: INTENT RECOGNITION ====================
+  console.log("[ALBUS] Step 1: Intent Recognition...");
+  const { intent, tokens: intentTokens } = await recognizeIntent(query, MISTRAL_API_KEY);
+  tokenUsage.intent_recognition = intentTokens;
 
-  const isGamingQuestion = gamingKeywords.some(word => queryLower.includes(word));
+  console.log("[ALBUS] Intent:", intent);
 
-  if (!isGamingQuestion) {
-    return jsonResponse({ query, user_pseudo: userPseudo, mode: "blocked", answer: "Je suis Albus, assistant gaming IA. Je peux t'aider sur les jeux vidéo!" }, 200, corsHeaders);
+  if (intent.type === "blocked") {
+    return jsonResponse({ 
+      query, user_pseudo: userPseudo, mode: "blocked", 
+      answer: "Je suis Albus, assistant gaming IA. Je peux t'aider sur les jeux vidéo!" 
+    }, 200, corsHeaders);
   }
 
-  const gameplayKeywords = ["battre", "beat", "boss", "strat", "stratégie", "strategy", "build", "comment", "skill", "technique", "conseil", "tip", "trick", "guide"];
-  const isGameplayQuestion = gameplayKeywords.some(word => queryLower.includes(word));
+  if (intent.type === "gameplay") {
+    const systemPrompt = `Tu es Albus, assistant gaming IA de Factiony.
+Réponds à des questions gaming (boss, build, strat).
+Conseils directs, pratiques. PAS D'ASTÉRISQUES.`;
 
-  if (isGameplayQuestion) {
-    return handleGameplayQuestion(query, userPseudo, userId, tier, MISTRAL_API_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, BASE_URL, corsHeaders);
-  } else {
-    return handleRecommendationAgent(query, userPseudo, userId, tier, RAWG_API_KEY, MISTRAL_API_KEY, BASE_URL, SUPABASE_URL, SUPABASE_ANON_KEY, corsHeaders);
-  }
-};
+    try {
+      const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + MISTRAL_API_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "mistral-large-latest",
+          temperature: 0.7,
+          max_tokens: 800,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: query },
+          ],
+        }),
+      });
 
-async function handleGameplayQuestion(query: string, userPseudo: string, userId: string, tier: string, mistralKey: string, supabaseUrl: string, supabaseKey: string, baseUrl: string, corsHeaders: Record<string, string>) {
-  const systemPrompt = `Tu es Albus, assistant gaming IA de Factiony.
+      if (res.ok) {
+        const json = await res.json();
+        const answer = json?.choices?.[0]?.message?.content ?? "";
+        const clean = answer.replace(/\*\*?/g, "");
+        tokenUsage.reasoning = estimateTokens(systemPrompt + query + answer);
+        tokenUsage.total = tokenUsage.reasoning;
 
-RÈGLES:
-- Réponds à des questions gaming (boss, build, strat)
-- Conseils directs, pratiques
-- PAS D'ASTÉRISQUES
-- Si tu mentionnes un jeu, inclus le lien: [Nom](${baseUrl}/game/slug-id)
-- Pose UNE question de suivi`;
-
-  const userPrompt = "Question: " + query + "\nRéponds directement.";
-
-  try {
-    const mistralRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: "Bearer " + mistralKey, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "mistral-large-latest",
-        temperature: 0.7,
-        max_tokens: 800,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-      }),
-    });
-
-    if (!mistralRes.ok) throw new Error("Mistral error");
-    const mistralJson = await mistralRes.json();
-    const response = mistralJson?.choices?.[0]?.message?.content ?? "";
-    const cleanResponse = response.replace(/\*\*?/g, "");
-
-    const tokensUsed = estimateTokens(userPrompt + response);
-    if (userId) await recordTokenUsage(supabaseUrl, supabaseKey, userId, tokensUsed);
-
-    return jsonResponse({ query, user_pseudo: userPseudo, mode: "gameplay", answer: cleanResponse, tokens_used: tokensUsed }, 200, corsHeaders);
-  } catch (e) {
-    console.error("[ALBUS] Gameplay error:", e);
-    return jsonResponse({ query, user_pseudo: userPseudo, mode: "gameplay", answer: "Erreur. Réessaie." }, 200, corsHeaders);
-  }
-}
-
-async function handleRecommendationAgent(query: string, userPseudo: string, userId: string, tier: string, rawgKey: string, mistralKey: string, baseUrl: string, supabaseUrl: string, supabaseKey: string, corsHeaders: Record<string, string>) {
-  const queryLower = query.toLowerCase();
-  const tokenUsage: TokenUsage = { planning: 0, rawg: 0, web: 0, reasoning: 0, total: 0 };
-
-  const estimatedTokens = tier === "premium" ? 3500 : 1700;
-  const hasTokens = await checkTokenLimit(supabaseUrl, supabaseKey, userId, tier, estimatedTokens);
-
-  if (!hasTokens) {
-    return jsonResponse({
-      query, user_pseudo: userPseudo, mode: "recommendation",
-      error: "token_limit_exceeded",
-      message: "Token limit atteint ce mois. Upgrade à premium pour illimité!",
-    }, 429, corsHeaders);
-  }
-
-  console.log("[ALBUS] Step 1: Planning...");
-
-  const planningPrompt = `Tu es Albus. Plan pour recommander les meilleurs jeux.
-
-Requête: "${query}"
-
-Crée un PLAN:
-tags:tag1,tag2
-platform:ps5
-search:keywords
-quality:3.5`;
-
-  let parsedTags: string[] = [];
-  let platformId = null;
-  let searchKeywords = "";
-
-  try {
-    const planRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: "Bearer " + mistralKey, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "mistral-large-latest",
-        temperature: 0.5,
-        max_tokens: 150,
-        messages: [{ role: "user", content: planningPrompt }],
-      }),
-    });
-
-    if (planRes.ok) {
-      const planJson = await planRes.json();
-      const plan = planJson?.choices?.[0]?.message?.content ?? "";
-      tokenUsage.planning = estimateTokens(planningPrompt + plan);
-
-      const tagsMatch = plan.match(/tags:([^\n]+)/);
-      if (tagsMatch) {
-        const tagNames = tagsMatch[1].split(",").map((t: string) => t.trim());
-        parsedTags = tagNames
-          .map((tag: string) => TAG_IDS[tag])
-          .filter((id: any) => id !== undefined)
-          .map((id: number) => id.toString());
+        return jsonResponse({
+          query, user_pseudo: userPseudo, mode: "gameplay",
+          answer: clean, tokens_used: tokenUsage,
+        }, 200, corsHeaders);
       }
-
-      const platformMatch = plan.match(/platform:(\w+)/);
-      if (platformMatch) {
-        const p = platformMatch[1].toLowerCase();
-        if (p.includes("ps5")) platformId = "187";
-        else if (p.includes("xbox")) platformId = "186";
-        else if (p.includes("switch")) platformId = "7";
-        else if (p.includes("pc")) platformId = "4";
-      }
-
-      const searchMatch = plan.match(/search:([^\n]+)/);
-      if (searchMatch) searchKeywords = searchMatch[1].trim();
-    }
-  } catch (e) {
-    console.error("[ALBUS] Planning error:", e);
-  }
-
-  if (!parsedTags.length) {
-    for (const [keyword, id] of Object.entries(TAG_IDS)) {
-      if (queryLower.includes(keyword)) {
-        parsedTags = [id.toString()];
-        break;
-      }
+    } catch (e) {
+      console.error("[ALBUS] Gameplay error:", e);
     }
   }
 
-  if (!platformId && queryLower.includes("ps5")) platformId = "187";
-  else if (!platformId && queryLower.includes("xbox")) platformId = "186";
-  else if (!platformId && queryLower.includes("switch")) platformId = "7";
-  else if (!platformId && queryLower.includes("pc")) platformId = "4";
+  // ==================== STEP 2: PARALLEL EXECUTION ====================
+  console.log("[ALBUS] Step 2: Tool Selection & Parallel Execution (Web + RAWG + Factiony)...");
 
-  console.log("[ALBUS] Step 2: Fetching user data...");
-  
-  const userData = userId ? await fetchUserData(supabaseUrl, supabaseKey, userId) : { signals: [], comments: [], summary: "" };
-  tokenUsage.rawg = estimateTokens(JSON.stringify(userData));
+  const [webData, rawgData, userProfileData] = await Promise.all([
+    intelligentWebSearch(query, intent, MISTRAL_API_KEY),
+    smartRawgSearch(query, intent, RAWG_API_KEY),
+    fetchUserProfile(SUPABASE_URL, SUPABASE_ANON_KEY, userId),
+  ]);
 
-  console.log("[ALBUS] Step 3: Searching RAWG...");
+  tokenUsage.web_search = webData.tokens;
+  tokenUsage.rawg_search = rawgData.tokens;
+  tokenUsage.user_data = userProfileData.tokens;
 
-  const rawgParams = new URLSearchParams();
-  rawgParams.set("key", rawgKey);
-  rawgParams.set("page_size", "50");
-  rawgParams.set("ordering", "-rating");
-  if (platformId) rawgParams.set("platforms", platformId);
-  if (parsedTags.length > 0) rawgParams.set("tags", parsedTags.join(","));
-  if (searchKeywords) rawgParams.set("search", searchKeywords);
+  console.log("[ALBUS] Web Results:", webData.results ? "✅" : "❌");
+  console.log("[ALBUS] RAWG Games:", rawgData.games.length);
+  console.log("[ALBUS] User Profile:", userProfileData.profile.likedGames.length, "likes");
 
-  let rawgGames: any[] = [];
-  try {
-    const rawgUrl = "https://api.rawg.io/api/games?" + rawgParams.toString();
-    const rawgRes = await fetch(rawgUrl);
-    if (rawgRes.ok) {
-      const rawgData = await rawgRes.json();
-      rawgGames = rawgData.results || [];
-      tokenUsage.rawg += estimateTokens(JSON.stringify(rawgGames.slice(0, 20)));
-    }
-  } catch (e) {
-    console.error("[ALBUS] RAWG error:", e);
-  }
-
-  if (rawgGames.length === 0) {
+  if (rawgData.games.length === 0 && !webData.results) {
     return jsonResponse({
       query, user_pseudo: userPseudo, mode: "recommendation",
       recommendations: [],
@@ -365,17 +487,23 @@ quality:3.5`;
     }, 200, corsHeaders);
   }
 
-  console.log("[ALBUS] Step 4: Web search...");
-  
-  let webContext = "";
-  if (rawgGames.length < 5) {
-    webContext = await webSearch(`${query} games review recommendations`, mistralKey);
-    tokenUsage.web = estimateTokens(webContext);
-  }
+  // ==================== STEP 3: INTELLIGENT DATA MERGING ====================
+  console.log("[ALBUS] Step 3: Data Merging (Web + RAWG + Factiony profile)...");
+  const { merged, tokens: mergeTokens } = await mergeDataIntelligently(
+    webData.results,
+    rawgData.games,
+    userProfileData.profile,
+    intent,
+    MISTRAL_API_KEY
+  );
+  tokenUsage.merging = mergeTokens;
 
-  console.log("[ALBUS] Step 5: Reasoning...");
+  console.log("[ALBUS] Merged context ready");
 
-  const filteredGames = rawgGames
+  // ==================== STEP 4: FINAL REASONING & RECOMMENDATION ====================
+  console.log("[ALBUS] Step 4: Final Reasoning...");
+
+  const filteredGames = rawgData.games
     .filter(g => g.rating >= 3.5)
     .slice(0, 15);
 
@@ -385,26 +513,33 @@ quality:3.5`;
     id: g.id,
     genres: (g.genres || []).map((x: any) => x.name).join(", "),
     rating: g.rating,
+    released: g.released,
   }));
 
-  const reasoningPrompt = `Tu es Albus. Recommande 1-3 meilleurs jeux.
+  const reasoningPrompt = `Tu es Albus. Recommande 1-3 jeux OPTIMISÉS pour cet utilisateur:
 
-Requête: "${query}"
-Données utilisateur: ${userData.summary}
-Web context: ${webContext || "N/A"}
-Jeux disponibles: ${JSON.stringify(gamesData)}
+CONTEXTE FUSIONNÉ:
+${merged}
 
-Format:
-1. Nom du jeu
-Description (pourquoi)
-Genre - Rating/5
+JEUX DISPONIBLES:
+${JSON.stringify(gamesData)}
 
-Puis une question courte. SANS ASTÉRISQUES.`;
+USER INSIGHTS (FACTIONY):
+- Jeux aimés: ${userProfileData.profile.likedGames.length}
+- Note moyenne: ${userProfileData.profile.averageRating}/5
+- Type: ${userProfileData.profile.averageRating >= 4 ? "Exigeant" : userProfileData.profile.averageRating >= 3 ? "Standard" : "Explorateur"}
+
+CRITICAL: 
+1. N'ELIMINE PAS jeux que l'user a déjà aimé (nos recommandations diffèrent)
+2. Sinon SI temporal=this_week → PRIORISE sorties récentes
+3. Format: Nom + description courte (pourquoi c'est BON POUR LUI) + genre/rating
+4. Puis 1 question courte
+5. PAS D'ASTÉRISQUES`;
 
   try {
-    const reasonRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
+    const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
       method: "POST",
-      headers: { Authorization: "Bearer " + mistralKey, "Content-Type": "application/json" },
+      headers: { Authorization: "Bearer " + MISTRAL_API_KEY, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "mistral-large-latest",
         temperature: 0.8,
@@ -413,93 +548,93 @@ Puis une question courte. SANS ASTÉRISQUES.`;
       }),
     });
 
-    if (!reasonRes.ok) throw new Error("Mistral error");
-    const reasonJson = await reasonRes.json();
-    const raw = reasonJson?.choices?.[0]?.message?.content ?? "";
-    tokenUsage.reasoning = estimateTokens(reasoningPrompt + raw);
+    if (res.ok) {
+      const json = await res.json();
+      const raw = json?.choices?.[0]?.message?.content ?? "";
+      tokenUsage.reasoning = estimateTokens(reasoningPrompt + raw);
+      const cleanRaw = raw.replace(/\*\*?/g, "");
 
-    const cleanRaw = raw.replace(/\*\*?/g, "");
+      const recommendations: any[] = [];
+      const lines = cleanRaw.split("\n");
+      let currentGame = null;
+      let currentDescription = "";
+      let found = 0;
 
-    const recommendations: any[] = [];
-    const lines = cleanRaw.split("\n");
-    let currentGame = null;
-    let currentDescription = "";
-    let found = 0;
-    
-    for (const line of lines) {
-      const trimmed = line.trim();
-      const gameMatch = gamesData.find(g => trimmed.toLowerCase().includes(g.name.toLowerCase()) && trimmed.length < 100);
-      
-      if (gameMatch && found < 3) {
-        if (currentGame && currentDescription) {
-          recommendations.push({
-            slug: currentGame.slug,
-            title: currentGame.name,
-            summary: currentDescription.trim(),
-            why: currentGame.genres + " - " + currentGame.rating + "/5",
-            url: baseUrl + "/game/" + currentGame.slug + "-" + currentGame.id,
-          });
-          found++;
-          currentDescription = "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        const gameMatch = gamesData.find(g => trimmed.toLowerCase().includes(g.name.toLowerCase()) && trimmed.length < 100);
+
+        if (gameMatch && found < 3) {
+          if (currentGame && currentDescription) {
+            recommendations.push({
+              slug: currentGame.slug,
+              title: currentGame.name,
+              summary: currentDescription.trim(),
+              why: currentGame.genres + " - " + currentGame.rating + "/5",
+              url: BASE_URL + "/game/" + currentGame.slug + "-" + currentGame.id,
+            });
+            found++;
+            currentDescription = "";
+          }
+          currentGame = gameMatch;
+        } else if (currentGame && trimmed.length > 5 && !trimmed.includes("?") && found < 3) {
+          currentDescription += (currentDescription ? " " : "") + trimmed;
         }
-        currentGame = gameMatch;
-      } else if (currentGame && trimmed.length > 5 && !trimmed.includes("?") && !trimmed.includes("Lien") && found < 3) {
-        currentDescription += (currentDescription ? " " : "") + trimmed;
       }
-    }
-    
-    if (currentGame && currentDescription && found < 3) {
-      recommendations.push({
-        slug: currentGame.slug,
-        title: currentGame.name,
-        summary: currentDescription.trim(),
-        why: currentGame.genres + " - " + currentGame.rating + "/5",
-        url: baseUrl + "/game/" + currentGame.slug + "-" + currentGame.id,
-      });
-    }
 
-    const recs = recommendations.slice(0, 3);
-    
-    let questionText = "Lequel te tente?";
-    const sentences = cleanRaw.split(/[.!?]+/).filter((s: string) => s.trim().length > 0);
-    if (sentences.length > 0) {
-      const last = sentences[sentences.length - 1].trim();
-      if (last.length > 5 && last.length < 150) {
-        questionText = last + (last.includes("?") ? "" : "?");
+      if (currentGame && currentDescription && found < 3) {
+        recommendations.push({
+          slug: currentGame.slug,
+          title: currentGame.name,
+          summary: currentDescription.trim(),
+          why: currentGame.genres + " - " + currentGame.rating + "/5",
+          url: BASE_URL + "/game/" + currentGame.slug + "-" + currentGame.id,
+        });
       }
+
+      const recs = recommendations.slice(0, 3);
+      let questionText = "Lequel te tente?";
+      const sentences = cleanRaw.split(/[.!?]+/).filter((s: string) => s.trim().length > 0);
+      if (sentences.length > 0) {
+        const last = sentences[sentences.length - 1].trim();
+        if (last.length > 5 && last.length < 150) {
+          questionText = last + (last.includes("?") ? "" : "?");
+        }
+      }
+
+      tokenUsage.total = 
+        tokenUsage.intent_recognition +
+        tokenUsage.web_search +
+        tokenUsage.rawg_search +
+        tokenUsage.user_data +
+        tokenUsage.merging +
+        tokenUsage.reasoning;
+
+      console.log("[ALBUS] ✅ Recommendations:", recs.length, "| Tokens:", tokenUsage.total);
+
+      return jsonResponse({
+        query, user_pseudo: userPseudo, mode: "recommendation",
+        recommendations: recs,
+        personal_message: questionText,
+        tokens_used: tokenUsage,
+        intent_data: intent,
+      }, 200, corsHeaders);
     }
-
-    tokenUsage.total = tokenUsage.planning + tokenUsage.rawg + tokenUsage.web + tokenUsage.reasoning;
-    
-    if (userId) await recordTokenUsage(supabaseUrl, supabaseKey, userId, tokenUsage.total);
-
-    const summaryText = recs.map(r => r.title + " (" + r.why + ")").join(" / ");
-
-    console.log("[ALBUS] ✅ Recommandations générées:", recs.length, "jeux | Tokens:", tokenUsage.total);
-
-    return jsonResponse({
-      query, user_pseudo: userPseudo, mode: "recommendation",
-      recommendations: recs,
-      short_summary: summaryText,
-      personal_message: questionText,
-      tokens_used: tokenUsage,
-    }, 200, corsHeaders);
   } catch (e) {
     console.error("[ALBUS] Reasoning error:", e);
-    const top2 = gamesData.slice(0, 2).map((g: any) => ({
-      slug: g.slug,
-      title: g.name,
-      summary: g.genres,
-      why: g.genres + " - " + g.rating + "/5",
-      url: baseUrl + "/game/" + g.slug + "-" + g.id,
-    }));
-    
+    const top2 = gamesData.slice(0, 2);
     return jsonResponse({
       query, user_pseudo: userPseudo, mode: "recommendation",
-      recommendations: top2,
+      recommendations: top2.map(g => ({
+        slug: g.slug,
+        title: g.name,
+        summary: g.genres,
+        why: g.genres + " - " + g.rating + "/5",
+        url: BASE_URL + "/game/" + g.slug + "-" + g.id,
+      })),
       personal_message: "Lequel te tente?",
     }, 200, corsHeaders);
   }
-}
+};
 
 export const config = { path: "/api/ai-reco" };
