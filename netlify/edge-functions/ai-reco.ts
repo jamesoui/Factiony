@@ -1,4 +1,4 @@
-// netlify/edge-functions/ai-reco.ts - TRUE AGENTIC ALBUS V3 (OPTIMIZED - NO MERGE STEP)
+// netlify/edge-functions/ai-reco.ts - TRUE AGENTIC ALBUS V4 (DEEP UNDERSTANDING)
 
 function jsonResponse(body: any, status = 200, corsHeaders: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
@@ -20,7 +20,8 @@ const TAG_IDS: Record<string, number> = {
 };
 
 interface TokenUsage {
-  intent_recognition: number;
+  deep_understanding: number;
+  tool_selection: number;
   web_search: number;
   rawg_search: number;
   user_data: number;
@@ -28,18 +29,25 @@ interface TokenUsage {
   total: number;
 }
 
-interface Intent {
+interface QueryUnderstanding {
   type: "recommendation" | "gameplay" | "blocked";
-  temporal: "this_week" | "recent" | "all_time" | "now";
-  needs_current_data: boolean;
-  platform?: string;
-  genres?: string[];
-  keywords?: string;
+  temporal: {
+    start_date: string | null;
+    end_date: string | null;
+    label: string;
+    needs_current_data: boolean;
+  };
+  platforms: string[];
+  genres: string[];
+  themes: string[];
+  comparisons: string[];
+  context: string;
+  user_mindset: "casual" | "hardcore" | "explorer" | "collector";
+  intent: "discovery" | "recommendation" | "advice" | "comparison" | "help";
 }
 
 interface UserProfile {
   likedGames: any[];
-  favoriteGenres: string[];
   averageRating: number;
   reviews: any[];
   summary: string;
@@ -49,29 +57,60 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-// ==================== STEP 1: INTENT RECOGNITION ====================
-async function recognizeIntent(query: string, mistralKey: string): Promise<{ intent: Intent; tokens: number }> {
-  const prompt = `Tu es un agent IA gaming. Analyse cette requête et extrais l'INTENT.
-
-Requête: "${query}"
-
-RÉPONDS EN JSON UNIQUEMENT:
-{
-  "type": "recommendation|gameplay|blocked",
-  "temporal": "this_week|recent|all_time|now",
-  "needs_current_data": true|false,
-  "platform": "ps5|xbox|switch|pc|null",
-  "genres": ["rpg", "action"]
+function getTodayDate(): string {
+  return new Date().toISOString().split("T")[0];
 }
 
-RÈGLES:
-- type="recommendation" si cherche des jeux
-- type="gameplay" si question technique (boss, build, strat)
-- type="blocked" si pas gaming
-- temporal="this_week" si dit "cette semaine", "nouveautés", "sorties"
-- temporal="recent" si "derniers", "nouveaux"
-- temporal="all_time" si pas de temps mentionné
-- needs_current_data=true si demande info ACTUELLE (cette semaine, prix actuels, etc)`;
+// ==================== STEP 1: DEEP QUERY UNDERSTANDING ====================
+async function deepQueryUnderstanding(query: string, mistralKey: string): Promise<{ understanding: QueryUnderstanding; tokens: number }> {
+  const today = getTodayDate();
+
+  const prompt = `Tu es un agent IA gaming INTELLIGENT. Analyse cette requête EN PROFONDEUR.
+
+Requête: "${query}"
+Aujourd'hui: ${today}
+
+COMPRENDS vraiment ce que l'user demande. RÉPONDS EN JSON UNIQUEMENT:
+
+{
+  "type": "recommendation|gameplay|blocked",
+  "temporal": {
+    "start_date": "YYYY-MM-DD or null",
+    "end_date": "YYYY-MM-DD or null",
+    "label": "ce jour|ce mois|cette semaine|cet été|l'année dernière|recent|all_time",
+    "needs_current_data": true|false
+  },
+  "platforms": ["ps5", "xbox", "switch", "pc"],
+  "genres": ["rpg", "action", "adventure"],
+  "themes": ["fantasy", "dark", "relaxing", "challenging"],
+  "comparisons": ["like Elden Ring", "similar to The Last of Us"],
+  "context": "user wants discoveries|recommendations|help|comparison",
+  "user_mindset": "casual|hardcore|explorer|collector",
+  "intent": "discovery|recommendation|advice|comparison|help"
+}
+
+RÈGLES TEMPORELLES (IMPORTANTES):
+- "ce jour" → start=${today}, end=${today}
+- "ce mois" → start=2026-03-01, end=${today}
+- "cette semaine" → start=2026-03-17, end=${today}
+- "cet été" → start=2026-06-21, end=2026-09-21
+- "l'année dernière" → start=2025-03-24, end=2026-03-24
+- "récent|nouveaux|sorties" → needs_current_data=true
+- "comme Elden Ring" → comparisons=["Elden Ring"], intent=comparison
+- Pas de temps mentionné → null dates, all_time
+
+RÈGLES TYPE:
+- type="gameplay" si: boss, build, strat, combat, skill, technique
+- type="recommendation" si: cherche jeux, sorties, like, similaire
+- type="blocked" si: pas gaming du tout
+
+MIND-SET (important pour perso):
+- "facile|relax|chill" → casual
+- "hardcore|challenge|difficile|dark souls" → hardcore
+- "hidden gems|découvrir|explorer" → explorer
+- "collection|tous|complet" → collector
+
+Sois INTELLIGENT, pas juste keyword matching!`;
 
   try {
     const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
@@ -80,7 +119,7 @@ RÈGLES:
       body: JSON.stringify({
         model: "mistral-large-latest",
         temperature: 0,
-        max_tokens: 200,
+        max_tokens: 400,
         messages: [{ role: "user", content: prompt }],
       }),
     });
@@ -89,43 +128,66 @@ RÈGLES:
       const json = await res.json();
       const text = json?.choices?.[0]?.message?.content ?? "{}";
       const tokens = estimateTokens(prompt + text);
-      
+
       try {
         const parsed = JSON.parse(text);
-        return { intent: parsed, tokens };
+        return { understanding: parsed, tokens };
       } catch (e) {
-        console.error("[ALBUS] Intent parse error:", text);
-        return { intent: { type: "recommendation", temporal: "all_time", needs_current_data: false }, tokens };
+        console.error("[ALBUS] Understanding parse error:", text);
+        return {
+          understanding: {
+            type: "recommendation",
+            temporal: { start_date: null, end_date: null, label: "all_time", needs_current_data: false },
+            platforms: [],
+            genres: [],
+            themes: [],
+            comparisons: [],
+            context: "",
+            user_mindset: "explorer",
+            intent: "discovery",
+          },
+          tokens,
+        };
       }
     }
   } catch (e) {
-    console.error("[ALBUS] Intent recognition error:", e);
+    console.error("[ALBUS] Deep understanding error:", e);
   }
 
-  return { intent: { type: "recommendation", temporal: "all_time", needs_current_data: false }, tokens: 0 };
+  return {
+    understanding: {
+      type: "recommendation",
+      temporal: { start_date: null, end_date: null, label: "all_time", needs_current_data: false },
+      platforms: [],
+      genres: [],
+      themes: [],
+      comparisons: [],
+      context: "",
+      user_mindset: "explorer",
+      intent: "discovery",
+    },
+    tokens: 0,
+  };
 }
 
 // ==================== STEP 2: INTELLIGENT WEB SEARCH ====================
-async function intelligentWebSearch(query: string, intent: Intent, mistralKey: string): Promise<{ results: string; tokens: number }> {
-  if (!intent.needs_current_data) {
+async function intelligentWebSearch(understanding: QueryUnderstanding, query: string, mistralKey: string): Promise<{ results: string; tokens: number }> {
+  if (!understanding.temporal.needs_current_data) {
     return { results: "", tokens: 0 };
   }
 
   let searchQuery = query;
-  if (intent.temporal === "this_week") {
-    searchQuery += " released March 2026";
-  }
-  if (intent.platform) {
-    searchQuery += " " + intent.platform;
+  if (understanding.temporal.label !== "all_time") {
+    searchQuery += ` ${understanding.temporal.label} 2026`;
   }
 
   const prompt = `Cherche: "${searchQuery}"
 
-Résume EN FRANÇAIS en 3-4 phrases:
-1. Jeux trouvés
-2. Dates de sortie si pertinent
-3. Plateformes disponibles
-4. Avis/scores`;
+Résume EN FRANÇAIS en 3-4 phrases les infos gaming pertinentes:
+1. Jeux trouvés avec dates
+2. Plateformes disponibles
+3. Avis/scores pertinents
+4. Contexte (découvertes du jour, buzz, etc)`;
 
   try {
     const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
@@ -152,32 +214,34 @@ Résume EN FRANÇAIS en 3-4 phrases:
   return { results: "", tokens: 0 };
 }
 
-// ==================== STEP 3: SMART RAWG SEARCH ====================
-async function smartRawgSearch(query: string, intent: Intent, rawgKey: string): Promise<{ games: any[]; tokens: number }> {
-  const queryLower = query.toLowerCase();
+// ==================== STEP 3: INTELLIGENT RAWG SEARCH ====================
+async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey: string): Promise<{ games: any[]; tokens: number }> {
   let parsedTags: string[] = [];
-  let platformId = null;
-  let searchKeywords = query;
+  let platformIds: string[] = [];
 
-  if (intent.genres && intent.genres.length > 0) {
-    parsedTags = intent.genres
+  // Parse genres
+  if (understanding.genres && understanding.genres.length > 0) {
+    parsedTags = understanding.genres
       .map((g: string) => TAG_IDS[g])
       .filter((id: any) => id !== undefined)
       .map((id: number) => id.toString());
   }
 
-  if (intent.platform) {
-    if (intent.platform.includes("ps5")) platformId = "187";
-    else if (intent.platform.includes("xbox")) platformId = "186";
-    else if (intent.platform.includes("switch")) platformId = "7";
-    else if (intent.platform.includes("pc")) platformId = "4";
-  }
+  // Parse platforms
+  if (understanding.platforms && understanding.platforms.length > 0) {
+    const platformMap: Record<string, string> = {
+      "ps5": "187",
+      "playstation": "187",
+      "xbox": "186",
+      "xbox series": "186",
+      "switch": "7",
+      "nintendo": "7",
+      "pc": "4",
+    };
 
-  if (!parsedTags.length) {
-    for (const [keyword, id] of Object.entries(TAG_IDS)) {
-      if (queryLower.includes(keyword)) {
-        parsedTags = [id.toString()];
-        break;
+    for (const p of understanding.platforms) {
+      if (platformMap[p.toLowerCase()]) {
+        platformIds.push(platformMap[p.toLowerCase()]);
       }
     }
   }
@@ -186,18 +250,23 @@ async function smartRawgSearch(query: string, intent: Intent, rawgKey: string): 
   rawgParams.set("key", rawgKey);
   rawgParams.set("page_size", "50");
   rawgParams.set("ordering", "-rating");
-  if (platformId) rawgParams.set("platforms", platformId);
-  if (parsedTags.length > 0) rawgParams.set("tags", parsedTags.join(","));
-  if (searchKeywords) rawgParams.set("search", searchKeywords);
 
-  if (intent.temporal === "this_week") {
-    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-    rawgParams.set("dates", weekAgo + ",2026-12-31");
+  if (platformIds.length > 0) {
+    rawgParams.set("platforms", platformIds.join(","));
+  }
+  if (parsedTags.length > 0) {
+    rawgParams.set("tags", parsedTags.join(","));
+  }
+
+  // Date filtering
+  if (understanding.temporal.start_date && understanding.temporal.end_date) {
+    rawgParams.set("dates", `${understanding.temporal.start_date},${understanding.temporal.end_date}`);
   }
 
   let games: any[] = [];
   try {
     const rawgUrl = "https://api.rawg.io/api/games?" + rawgParams.toString();
+    console.log("[ALBUS] RAWG URL:", rawgUrl.substring(0, 100) + "...");
     const rawgRes = await fetch(rawgUrl);
     if (rawgRes.ok) {
       const rawgData = await rawgRes.json();
@@ -217,7 +286,6 @@ async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userId
     return {
       profile: {
         likedGames: [],
-        favoriteGenres: [],
         averageRating: 0,
         reviews: [],
         summary: "Nouvel utilisateur, pas d'historique",
@@ -247,17 +315,15 @@ async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userId
 
     const profile: UserProfile = {
       likedGames: signals,
-      favoriteGenres: [],
       averageRating: averageRating,
       reviews: comments,
       summary: `
 USER PASSION (FACTIONY):
 - A aimé ${signals.length} jeux
 - Noté ${comments.length} jeux avec moyenne ${averageRating}/5
-- Type de joueur: ${averageRating >= 4 ? "Exigeant (4+/5)" : averageRating >= 3 ? "Standard (3+/5)" : "Explorateur (tous les jeux)"}
+- Type de joueur: ${averageRating >= 4 ? "Exigeant (4+/5)" : averageRating >= 3 ? "Standard (3+/5)" : "Explorateur (tous genres)"}
 
-Jeux aimés (derniers): ${signals.slice(0, 5).map((s: any) => `#${s.game_id}`).join(", ")}
-Derniers avis: ${comments.slice(0, 3).map((c: any) => `"${c.content?.substring(0, 40)}..."`).join(" | ")}`,
+Jeux aimés: ${signals.slice(0, 5).map((s: any) => `#${s.game_id}`).join(", ")}`,
     };
 
     const tokens = estimateTokens(JSON.stringify(profile));
@@ -267,7 +333,6 @@ Derniers avis: ${comments.slice(0, 3).map((c: any) => `"${c.content?.substring(0
     return {
       profile: {
         likedGames: [],
-        favoriteGenres: [],
         averageRating: 0,
         reviews: [],
         summary: "Erreur chargement profil",
@@ -313,14 +378,14 @@ export default async (request: Request) => {
   const query = (body?.query ?? "").toString().trim();
   const userPseudo = (body?.user_pseudo ?? "").toString().trim();
   const userId = (body?.user_id ?? "").toString().trim();
-  const tier = (body?.tier ?? "free").toString().trim();
   
   if (!query) {
     return jsonResponse({ error: "Missing query" }, 400, corsHeaders);
   }
 
   const tokenUsage: TokenUsage = {
-    intent_recognition: 0,
+    deep_understanding: 0,
+    tool_selection: 0,
     web_search: 0,
     rawg_search: 0,
     user_data: 0,
@@ -328,23 +393,24 @@ export default async (request: Request) => {
     total: 0,
   };
 
-  console.log("[ALBUS] 🤖 TRUE AGENTIC V3 (OPTIMIZED) - Query:", query);
+  console.log("[ALBUS] 🤖 TRUE AGENTIC V4 (DEEP UNDERSTANDING) - Query:", query);
 
-  // ==================== STEP 1: INTENT RECOGNITION ====================
-  console.log("[ALBUS] Step 1: Intent Recognition...");
-  const { intent, tokens: intentTokens } = await recognizeIntent(query, MISTRAL_API_KEY);
-  tokenUsage.intent_recognition = intentTokens;
+  // ==================== STEP 1: DEEP QUERY UNDERSTANDING ====================
+  console.log("[ALBUS] Step 1: Deep Query Understanding...");
+  const { understanding, tokens: understandingTokens } = await deepQueryUnderstanding(query, MISTRAL_API_KEY);
+  tokenUsage.deep_understanding = understandingTokens;
 
-  console.log("[ALBUS] Intent:", intent);
+  console.log("[ALBUS] Understanding:", understanding);
 
-  if (intent.type === "blocked") {
-    return jsonResponse({ 
-      query, user_pseudo: userPseudo, mode: "blocked", 
-      answer: "Je suis Albus, assistant gaming IA. Je peux t'aider sur les jeux vidéo!" 
+  if (understanding.type === "blocked") {
+    return jsonResponse({
+      query, user_pseudo: userPseudo, mode: "blocked",
+      answer: "Je suis Albus, assistant gaming IA. Je peux t'aider sur les jeux vidéo!",
     }, 200, corsHeaders);
   }
 
-  if (intent.type === "gameplay") {
+  // ==================== GAMEPLAY QUESTION ====================
+  if (understanding.type === "gameplay") {
     const systemPrompt = `Tu es Albus, assistant gaming IA de Factiony.
 Réponds à des questions gaming (boss, build, strat).
 Conseils directs, pratiques. PAS D'ASTÉRISQUES.`;
@@ -369,7 +435,7 @@ Conseils directs, pratiques. PAS D'ASTÉRISQUES.`;
         const answer = json?.choices?.[0]?.message?.content ?? "";
         const clean = answer.replace(/\*\*?/g, "");
         tokenUsage.reasoning = estimateTokens(systemPrompt + query + answer);
-        tokenUsage.total = tokenUsage.reasoning;
+        tokenUsage.total = tokenUsage.deep_understanding + tokenUsage.reasoning;
 
         return jsonResponse({
           query, user_pseudo: userPseudo, mode: "gameplay",
@@ -381,12 +447,12 @@ Conseils directs, pratiques. PAS D'ASTÉRISQUES.`;
     }
   }
 
-  // ==================== STEP 2: PARALLEL EXECUTION (Web + RAWG + Factiony) ====================
+  // ==================== STEP 2: PARALLEL EXECUTION ====================
   console.log("[ALBUS] Step 2: Parallel Execution (Web + RAWG + Factiony)...");
 
   const [webData, rawgData, userProfileData] = await Promise.all([
-    intelligentWebSearch(query, intent, MISTRAL_API_KEY),
-    smartRawgSearch(query, intent, RAWG_API_KEY),
+    intelligentWebSearch(understanding, query, MISTRAL_API_KEY),
+    intelligentRawgSearch(understanding, RAWG_API_KEY),
     fetchUserProfile(SUPABASE_URL, SUPABASE_ANON_KEY, userId),
   ]);
 
@@ -402,12 +468,12 @@ Conseils directs, pratiques. PAS D'ASTÉRISQUES.`;
     return jsonResponse({
       query, user_pseudo: userPseudo, mode: "recommendation",
       recommendations: [],
-      personal_message: "Aucun jeu trouvé. Essaie d'autres mots-clés!",
+      personal_message: "Aucun jeu trouvé. Essaie d'autres critères!",
     }, 200, corsHeaders);
   }
 
-  // ==================== STEP 3: FINAL REASONING (Merge + Recommend in ONE step) ====================
-  console.log("[ALBUS] Step 3: Final Reasoning + Recommendations...");
+  // ==================== STEP 3: FINAL INTELLIGENT REASONING ====================
+  console.log("[ALBUS] Step 3: Final Reasoning + Synthesis...");
 
   const filteredGames = rawgData.games
     .filter(g => g.rating >= 3.5)
@@ -422,11 +488,20 @@ Conseils directs, pratiques. PAS D'ASTÉRISQUES.`;
     released: g.released,
   }));
 
-  const reasoningPrompt = `Tu es Albus. FUSIONNE INTELLIGEMMENT ces 3 sources ET recommande 1-3 jeux:
+  const reasoningPrompt = `Tu es Albus. Tu as COMPRIS profondément ce que l'user demande. Maintenant FUSIONNE et RECOMMANDE intelligemment:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📱 DONNÉES INTERNET (CETTE SEMAINE):
-${webData.results || "Pas de données récentes"}
+🧠 CE QUE TU AS COMPRIS:
+- Type: ${understanding.type}
+- Intent: ${understanding.intent} (${understanding.context})
+- User Mindset: ${understanding.user_mindset}
+- Cherche: ${understanding.themes.join(", ") || "jeux généralement"}
+${understanding.comparisons.length > 0 ? `- Comparaisons: ${understanding.comparisons.join(", ")}` : ""}
+- Temporal: ${understanding.temporal.label}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📱 DONNÉES INTERNET (si actuelles):
+${webData.results || "Pas de données internet récentes"}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎮 JEUX RAWG (${gamesData.length} disponibles, rating >= 3.5):
@@ -437,30 +512,28 @@ ${JSON.stringify(gamesData.slice(0, 12))}
 ${userProfileData.profile.summary}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 INTENT: temporal="${intent.temporal}"
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📋 TASK:
-1. FUSIONNE intelligemment Internet + RAWG + User profile
-2. Si temporal=this_week → PRIORISE jeux sorties récentes (dates pertinentes)
-3. Filtre par goûts utilisateur (note moyenne ${userProfileData.profile.averageRating}/5)
-4. Recommande 1-3 jeux + EXPLIQUER pourquoi ILS MATCHENT PARFAITEMENT CET USER
-5. Puis 1 question courte
+1. FUSIONNE Web + RAWG + User profile intelligemment
+2. Applique ta compréhension (user mindset = ${understanding.user_mindset}, intent = ${understanding.intent})
+3. Si temporal pertinent → priorise par dates
+4. Si comparaisons → explique pourquoi c'est similaire/différent
+5. Recommande 1-3 jeux EXPLIQUANT pourquoi C'EST BON POUR CET USER SPÉCIFIQUE
+6. Puis 1 question courte
 
 CRITÈRES:
 - Rating >= 3.5
-- Match avec goûts user (genres favoris, note moyenne)
-- Dates récentes si temporal=this_week
-- Descriptions personnalisées ("Comme tu aimes...")
+- Match PROFOND avec user mindset (casual/hardcore/explorer)
+- Match avec context cherché
+- Dates si temporel
 
-Format recommandation:
+Format:
 🎮 [Nom du jeu]
-Description courte (pourquoi c'est BON POUR LUI)
-[Genres] - [Rating]/5
+Description courte (POURQUOI c'est bon POUR LUI spécifiquement)
+[Genres] - [Rating]/5 - Sorti en [Année]
 
 Puis question.
 
-⚠️ PAS D'ASTÉRISQUES. Texte simple.`;
+⚠️ PAS D'ASTÉRISQUES. Texte simple. SOIS VRAIMENT INTELLIGENT.`;
 
   try {
     const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
@@ -528,21 +601,21 @@ Puis question.
         }
       }
 
-      tokenUsage.total = 
-        tokenUsage.intent_recognition +
+      tokenUsage.total =
+        tokenUsage.deep_understanding +
         tokenUsage.web_search +
         tokenUsage.rawg_search +
         tokenUsage.user_data +
         tokenUsage.reasoning;
 
-      console.log("[ALBUS] ✅ Recommendations:", recs.length, "| Tokens:", tokenUsage.total, "| Time: FAST");
+      console.log("[ALBUS] ✅ Recommendations:", recs.length, "| Tokens:", tokenUsage.total);
 
       return jsonResponse({
         query, user_pseudo: userPseudo, mode: "recommendation",
         recommendations: recs,
         personal_message: questionText,
         tokens_used: tokenUsage,
-        intent_data: intent,
+        understanding_data: understanding,
       }, 200, corsHeaders);
     }
   } catch (e) {
