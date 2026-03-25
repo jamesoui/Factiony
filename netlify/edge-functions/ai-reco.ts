@@ -130,7 +130,7 @@ Sois INTELLIGENT, pas juste keyword matching!`;
       const tokens = estimateTokens(prompt + text);
 
       try {
-        const parsed = JSON.parse(text);
+        const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
         return { understanding: parsed, tokens };
       } catch (e) {
         console.error("[ALBUS] Understanding parse error:", text);
