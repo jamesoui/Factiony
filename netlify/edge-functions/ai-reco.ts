@@ -516,8 +516,8 @@ Conseils directs, pratiques. PAS D'ASTÉRISQUES.`;
   // Filter by rating ONLY if NOT temporal search
   // Temporal searches include all games (even new ones with no rating yet)
   const filteredGames = understanding.temporal.start_date
-    ? rawgData.games.slice(0, 15) // Temporal: include all, no rating filter
-    : rawgData.games.filter(g => g.rating >= 3.5).slice(0, 15); // General: only good ratings
+  ? games.slice(0, 15)  // ✅ Utilise games filtré!
+  : games.filter(g => g.rating >= 3.5).slice(0, 15);
 
   const gamesData = filteredGames.map((g: any) => ({
     name: g.name,
