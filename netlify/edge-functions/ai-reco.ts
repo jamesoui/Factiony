@@ -110,6 +110,8 @@ MIND-SET (important pour perso):
 - "hidden gems|découvrir|explorer" → explorer
 - "collection|tous|complet" → collector
 
+IMPORTANT: Réponds UNIQUEMENT avec le JSON ci-dessus. Aucun champ supplémentaire, aucun commentaire, aucun analysis_notes.
+
 Sois INTELLIGENT, pas juste keyword matching!`;
 
   try {
@@ -119,7 +121,7 @@ Sois INTELLIGENT, pas juste keyword matching!`;
       body: JSON.stringify({
         model: "mistral-large-latest",
         temperature: 0,
-        max_tokens: 400,
+        max_tokens: 1000, // FIX: was 400, too low → JSON truncation on complex queries
         messages: [{ role: "user", content: prompt }],
       }),
     });
@@ -196,7 +198,7 @@ Résume EN FRANÇAIS en 3-4 phrases les infos gaming pertinentes:
       body: JSON.stringify({
         model: "mistral-large-latest",
         temperature: 0.5,
-        max_tokens: 400,
+        max_tokens: 500, // FIX: was 400, slight bump for complete summaries
         messages: [{ role: "user", content: prompt }],
       }),
     });
@@ -494,7 +496,6 @@ Conseils directs, pratiques. PAS D'ASTÉRISQUES.`;
   console.log("[ALBUS] User Profile:", userProfileData.profile.likedGames.length, "likes");
 
   if (rawgData.games.length === 0 && !webData.results) {
-    // Fallback: si recherche temporelle stricte, élargir
     if (understanding.temporal.start_date) {
       return jsonResponse({
         query, user_pseudo: userPseudo, mode: "recommendation",
@@ -513,11 +514,10 @@ Conseils directs, pratiques. PAS D'ASTÉRISQUES.`;
   // ==================== STEP 3: FINAL INTELLIGENT REASONING ====================
   console.log("[ALBUS] Step 3: Final Reasoning + Synthesis...");
 
-  // Filter by rating ONLY if NOT temporal search
-  // Temporal searches include all games (even new ones with no rating yet)
+  // FIX: was `games` (undefined) → rawgData.games
   const filteredGames = understanding.temporal.start_date
-  ? games.slice(0, 15)  // ✅ Utilise games filtré!
-  : games.filter(g => g.rating >= 3.5).slice(0, 15);
+    ? rawgData.games.slice(0, 15)
+    : rawgData.games.filter((g: any) => g.rating >= 3.5).slice(0, 15);
 
   const gamesData = filteredGames.map((g: any) => ({
     name: g.name,
@@ -583,7 +583,7 @@ Puis question.
       body: JSON.stringify({
         model: "mistral-large-latest",
         temperature: 0.8,
-        max_tokens: 1200,
+        max_tokens: 1500, // FIX: was 1200, bumped for complete reasoning
         messages: [{ role: "user", content: reasoningPrompt }],
       }),
     });
