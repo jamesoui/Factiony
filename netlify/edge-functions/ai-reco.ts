@@ -473,7 +473,7 @@ Réponds avec les meilleures stratégies/builds/conseils. Sois précis et action
         body: JSON.stringify({
           model: "mistral-small-latest", // FIX: small suffisant avec données Brave déjà structurées, 3x plus rapide
           temperature: 0.7,
-          max_tokens: 800,
+          max_tokens: 1200,
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
