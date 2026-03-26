@@ -583,6 +583,9 @@ Réponds avec les meilleures stratégies/builds/conseils. Sois précis et action
 - Cherche: ${understanding.themes.join(", ") || "jeux généralement"}
 ${understanding.comparisons.length > 0 ? `- Comparaisons: ${understanding.comparisons.join(", ")}` : ""}
 - Temporal: ${understanding.temporal.label}
+- Genres demandés: ${understanding.genres.join(", ") || "aucun filtre"}
+
+${understanding.genres.some((g: string) => ["coop", "multiplayer", "multijoueur", "solo", "single-player"].includes(g)) ? `Note: l'user cherche des jeux "${understanding.genres.filter((g: string) => ["coop", "multiplayer", "multijoueur", "solo", "single-player"].includes(g)).join(", ")}". Les jeux ont déjà été filtrés selon ce critère. Dans tes descriptions, mentionne brièvement le mode de jeu (ex: "coop 2-4 joueurs en ligne", "solo uniquement", "multijoueur compétitif").` : ""}
 
 🌐 DONNÉES WEB RÉELLES (Brave Search):
 ${webData.results || "Pas de données web"}
