@@ -231,7 +231,7 @@ async function braveWebSearch(understanding: QueryUnderstanding, query: string, 
 }
 
 // ==================== RAWG SEARCH ====================
-async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey: string): Promise<{ games: any[]; tokens: number }> {
+async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey: string, userPlatforms: string[] = []): Promise<{ games: any[]; tokens: number }> {
   if (understanding.type === "gameplay") {
     console.log("[ALBUS] RAWG: OFF (gameplay)");
     return { games: [], tokens: 0 };
@@ -247,17 +247,26 @@ async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey:
       .map((id: number) => id.toString());
   }
 
-  if (understanding.platforms?.length > 0) {
-    const platformMap: Record<string, string> = {
-      "ps5": "187", "playstation": "187",
-      "xbox": "186", "xbox series": "186",
-      "switch": "7", "nintendo": "7",
-      "pc": "4",
-    };
-    for (const p of understanding.platforms) {
-      if (platformMap[p.toLowerCase()]) platformIds.push(platformMap[p.toLowerCase()]);
-    }
+  const platformMap: Record<string, string> = {
+    "ps5": "187", "playstation 5": "187", "playstation": "187",
+    "xbox": "186", "xbox series": "186",
+    "switch": "7", "nintendo": "7",
+    "pc": "4",
+    "playstation 4": "18", "ps4": "18",
+    "playstation 3": "16", "ps3": "16",
+  };
+
+  // Priorité : plateformes mentionnées dans la requête, sinon plateformes du profil user
+  const platformsToUse = understanding.platforms?.length > 0
+    ? understanding.platforms
+    : userPlatforms;
+
+  for (const p of platformsToUse) {
+    const id = platformMap[p.toLowerCase()];
+    if (id && !platformIds.includes(id)) platformIds.push(id);
   }
+
+  console.log("[ALBUS] RAWG platforms:", platformIds.join(",") || "aucun filtre");
 
   const rawgParams = new URLSearchParams();
   rawgParams.set("key", rawgKey);
@@ -441,12 +450,23 @@ export default async (request: Request) => {
   const authHeader = request.headers.get("Authorization") ?? "";
   const userJwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : SUPABASE_ANON_KEY;
 
-  const [webData, rawgData, userProfileData] = await Promise.all([
+  // Fetch profil d'abord pour avoir les plateformes user avant RAWG
+  const userProfileData = await fetchUserProfile(SUPABASE_URL, SUPABASE_ANON_KEY, userJwt, userId, understanding.type);
+
+  // Extraire les plateformes du profil pour les passer à RAWG
+  const userPlatformNames = userProfileData.profile.reviews
+    .map((r: any) => r.platform)
+    .filter(Boolean)
+    .reduce((acc: Record<string, number>, p: string) => { acc[p] = (acc[p] || 0) + 1; return acc; }, {});
+  const sortedUserPlatforms = Object.entries(userPlatformNames)
+    .sort((a: any, b: any) => b[1] - a[1])
+    .map(([p]) => p.toLowerCase());
+
+  const [webData, rawgData] = await Promise.all([
     BRAVE_API_KEY
       ? braveWebSearch(understanding, query, BRAVE_API_KEY)
       : Promise.resolve({ results: "", tokens: 0 }),
-    intelligentRawgSearch(understanding, RAWG_API_KEY),
-    fetchUserProfile(SUPABASE_URL, SUPABASE_ANON_KEY, userJwt, userId, understanding.type),
+    intelligentRawgSearch(understanding, RAWG_API_KEY, sortedUserPlatforms),
   ]);
 
   tokenUsage.web_search = webData.tokens;
@@ -607,46 +627,55 @@ Description (POURQUOI pour lui spécifiquement)
 
       for (const line of lines) {
         const trimmed = line.trim();
+        if (!trimmed) continue;
+
         const gameMatch = gamesData.find((g: any) =>
           trimmed.toLowerCase().includes(g.name.toLowerCase()) && trimmed.length < 100
         );
 
         if (gameMatch && found < 3) {
-          if (currentGame && currentDescription) {
+          // Sauvegarde le jeu précédent avant de passer au suivant
+          if (currentGame) {
             recommendations.push({
               slug: currentGame.slug,
               title: currentGame.name,
-              summary: currentDescription.trim(),
+              summary: currentDescription.trim() || currentGame.genres,
               why: currentGame.genres + " - " + (currentGame.rating === "N/A" ? "Nouvelle sortie" : currentGame.rating + "/5"),
               url: BASE_URL + "/game/" + currentGame.slug + "-" + currentGame.id,
             });
             found++;
-            currentDescription = "";
           }
           currentGame = gameMatch;
-        } else if (currentGame && trimmed.length > 5 && !trimmed.includes("?") && found < 3) {
-          currentDescription += (currentDescription ? " " : "") + trimmed;
+          currentDescription = "";
+        } else if (currentGame && trimmed.length > 5 && found < 3) {
+          // Exclut les lignes qui ressemblent à des ratings ou genres courts
+          const isMetaLine = /^\[.*\]/.test(trimmed) || /^\d+(\.\d+)?\/5/.test(trimmed);
+          if (!isMetaLine) {
+            currentDescription += (currentDescription ? " " : "") + trimmed;
+          }
         }
       }
 
-      if (currentGame && currentDescription && found < 3) {
+      // Dernier jeu
+      if (currentGame && found < 3) {
         recommendations.push({
           slug: currentGame.slug,
           title: currentGame.name,
-          summary: currentDescription.trim(),
+          summary: currentDescription.trim() || currentGame.genres,
           why: currentGame.genres + " - " + (currentGame.rating === "N/A" ? "Nouvelle sortie" : currentGame.rating + "/5"),
           url: BASE_URL + "/game/" + currentGame.slug + "-" + currentGame.id,
         });
       }
 
       const recs = recommendations.slice(0, 3);
+
+      // FIX questionText : cherche une vraie question (contient ?) en ignorant les ratings
       let questionText = "Lequel te tente?";
-      const sentences = cleanRaw.split(/[.!?]+/).filter((s: string) => s.trim().length > 0);
-      if (sentences.length > 0) {
-        const last = sentences[sentences.length - 1].trim();
-        if (last.length > 5 && last.length < 150) {
-          questionText = last + (last.includes("?") ? "" : "?");
-        }
+      const questionLines = cleanRaw.split("\n")
+        .map((s: string) => s.trim())
+        .filter((s: string) => s.includes("?") && s.length > 10 && s.length < 200 && !/\d+\/5/.test(s));
+      if (questionLines.length > 0) {
+        questionText = questionLines[questionLines.length - 1];
       }
 
       tokenUsage.total = Object.values(tokenUsage).reduce((a, b) => a + b, 0);
