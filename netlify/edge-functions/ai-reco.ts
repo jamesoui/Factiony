@@ -336,12 +336,16 @@ async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userJw
       `${r.game_slug || r.game_id} (${r.rating}/5${r.platform ? ` sur ${r.platform}` : ""})`
     );
 
-    const topRated = ratings.filter((r: any) => Number(r.rating) >= 4);
-    const platformPref = ratings
+    // Plateformes dynamiques depuis les ratings
+    const platformCounts = ratings
       .map((r: any) => r.platform)
       .filter(Boolean)
       .reduce((acc: Record<string, number>, p: string) => { acc[p] = (acc[p] || 0) + 1; return acc; }, {});
-    const topPlatform = Object.entries(platformPref).sort((a: any, b: any) => b[1] - a[1])[0]?.[0];
+    const sortedPlatforms = Object.entries(platformCounts)
+      .sort((a: any, b: any) => b[1] - a[1])
+      .map(([p]) => p);
+    const topPlatform = sortedPlatforms[0] ?? "non renseignée";
+    const allPlatforms = sortedPlatforms.join(", ") || "non renseignée";
 
     const profile: UserProfile = {
       likedGames: follows,
@@ -349,12 +353,22 @@ async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userJw
       reviews: ratings,
       summary: `
 USER PROFIL FACTIONY:
-- Suit ${follows.length} jeux: ${followedNames.join(", ") || "aucun"}
-- A noté ${ratings.length} jeux, moyenne ${averageRating}/5
-- ${topRated.length} jeux notés 4+/5 (exigeant sur la qualité)
-- Plateforme préférée: ${topPlatform || "non renseignée"}
+
+JEUX JOUÉS ET NOTÉS (références de goût fiables):
+- ${ratings.length} jeux notés, moyenne ${averageRating}/5
+- ${topRated.length} jeux notés 4+/5 (vrais coups de cœur)
 - Derniers jeux notés: ${ratedGames.join(" | ") || "aucun"}
-- Profil: ${averageRating >= 4 ? "Joueur exigeant" : averageRating >= 3 ? "Joueur standard" : follows.length > 10 ? "Explorateur curieux" : "Nouveau sur Factiony"}`,
+
+PLATEFORMES JOUÉES (IMPORTANT - recommande uniquement des jeux dispo sur ces plateformes):
+- Plateforme principale: ${topPlatform}
+- Toutes ses plateformes: ${allPlatforms}
+
+JEUX SUIVIS / WISHLIST (envies futures, PAS encore joués - ne pas utiliser comme référence de goût):
+- ${follows.length} jeux en wishlist: ${followedNames.join(", ") || "aucun"}
+- Ces jeux ne sont PAS des références de goût, juste des envies
+
+PROFIL JOUEUR:
+- ${averageRating >= 4 ? "Joueur exigeant, aime les jeux de qualité" : averageRating >= 3 ? "Joueur standard, ouvert à différents genres" : follows.length > 10 ? "Explorateur curieux" : "Nouveau sur Factiony"}`,
     };
 
     return { profile, tokens: estimateTokens(JSON.stringify(profile)) };
