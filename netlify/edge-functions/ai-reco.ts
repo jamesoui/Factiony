@@ -8,7 +8,8 @@ function jsonResponse(body: any, status = 200, corsHeaders: Record<string, strin
 }
 
 const TAG_IDS: Record<string, number> = {
-  "coop": 7, "coopératif": 7, "cooperative": 7,
+  "coop": 18, "coopératif": 18, "cooperative": 18, "co-op": 18,
+  "online coop": 9, "online co-op": 9,
   "multiplayer": 7906, "multijoueur": 7906,
   "solo": 3368, "single-player": 3368,
   "rpg": 5, "action": 4, "strategy": 10, "stratégie": 10,
@@ -101,6 +102,11 @@ RÈGLES TYPE:
 - type="gameplay" si: boss, build, strat, combat, skill, technique, comment faire, équipement, guide
 - type="recommendation" si: cherche jeux, sorties, like, similaire, recommande
 - type="blocked" si: pas gaming du tout
+
+GENRES (important pour filtrer RAWG correctement):
+- "coop|coopératif|co-op|jouer ensemble|avec un ami" → genres=["coop"]
+- "multijoueur|multi" → genres=["multiplayer"]
+- "solo" → genres=["solo"]
 
 NEEDS_CURRENT_DATA:
 - type="gameplay" → needs_current_data=true TOUJOURS (builds, patches, metas changent)
