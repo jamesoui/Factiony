@@ -462,18 +462,18 @@ Réponds avec les meilleures stratégies/builds/conseils. Sois précis et action
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => {
-        console.log("[ALBUS] Gameplay reasoning TIMEOUT après 20s");
+        console.log("[ALBUS] Gameplay reasoning TIMEOUT après 25s");
         controller.abort();
-      }, 20000);
+      }, 25000);
 
       const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
         method: "POST",
         signal: controller.signal,
         headers: { Authorization: "Bearer " + MISTRAL_API_KEY, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "mistral-large-latest",
+          model: "mistral-small-latest", // FIX: small suffisant avec données Brave déjà structurées, 3x plus rapide
           temperature: 0.7,
-          max_tokens: 1000,
+          max_tokens: 800,
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
