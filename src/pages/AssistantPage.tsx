@@ -17,7 +17,7 @@ type AiRecoResponse = {
   answer?: string;
   has_community_context?: boolean;
   personal_message?: string;
-  tokens_used?: number;
+  tokens_used?: number; // toujours un number maintenant
   error?: string;
   message?: string;
 };
@@ -46,7 +46,7 @@ export default function AssistantPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [sessionId] = useState(() => crypto.randomUUID());
+  const sessionIdRef = useRef<string>(crypto.randomUUID());
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [tokenStatus, setTokenStatus] = useState<{ used: number; limit: number; tier: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +80,7 @@ export default function AssistantPage() {
 
       const tier = user.app_metadata?.tier === 'premium' ? 'premium' : 'free';
       const limit = tier === 'premium' ? 100000 : 15000;
-      const used = data?.tokens_used ?? 0;
+      const used = typeof data?.tokens_used === 'number' ? data.tokens_used : 0;
 
       setTokenStatus({ used, limit, tier });
     } catch (e) {
@@ -113,14 +113,14 @@ export default function AssistantPage() {
     }
   }
 
-  async function loadConversation(sessionId: string) {
+  async function loadConversation(sid: string) {
     if (!user?.id) return;
     try {
       const { data, error } = await supabase
         .from('ai_conversations')
         .select('messages')
         .eq('user_id', user.id)
-        .eq('session_id', sessionId)
+        .eq('session_id', sid)
         .single();
 
       if (error) {
@@ -129,6 +129,7 @@ export default function AssistantPage() {
       }
 
       if (data?.messages) {
+        sessionIdRef.current = sid; // FIX: on reprend le sessionId de la conv chargée
         setMessages(JSON.parse(data.messages));
       }
     } catch (e) {
@@ -136,7 +137,7 @@ export default function AssistantPage() {
     }
   }
 
-  async function deleteConversation(sessionId: string, e: React.MouseEvent) {
+  async function deleteConversation(sid: string, e: React.MouseEvent) {
     e.stopPropagation();
     if (!user?.id) return;
     try {
@@ -144,7 +145,7 @@ export default function AssistantPage() {
         .from('ai_conversations')
         .delete()
         .eq('user_id', user.id)
-        .eq('session_id', sessionId);
+        .eq('session_id', sid);
 
       if (error) {
         console.error('Error deleting conversation:', error);
@@ -157,6 +158,7 @@ export default function AssistantPage() {
   }
 
   function startNewConversation() {
+    sessionIdRef.current = crypto.randomUUID(); // FIX: nouveau sessionId à chaque nouvelle conv
     setMessages([
       {
         role: 'assistant',
@@ -188,7 +190,7 @@ export default function AssistantPage() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           query: finalQuery,
           user_pseudo: userPseudo,
           user_id: user?.id || '',
@@ -205,8 +207,8 @@ export default function AssistantPage() {
       // Check for token limit error
       if (data.error === 'token_limit_exceeded') {
         setError(data.message || 'Token limit reached');
-        setMessages((prev) => [...prev, { 
-          role: 'assistant', 
+        setMessages((prev) => [...prev, {
+          role: 'assistant',
           content: '⚠️ ' + (data.message || 'Limite de tokens atteinte. Upgrade à premium pour illimité!')
         }]);
         return;
@@ -232,28 +234,33 @@ export default function AssistantPage() {
       }
 
       if (hasAddedRecos && data.recommendations?.length && data.personal_message) {
-        const followUp = `${data.personal_message}`;
-        setMessages((prev) => [...prev, { role: 'assistant', content: followUp }]);
+        setMessages((prev) => [...prev, { role: 'assistant', content: data.personal_message! }]);
       }
 
-      // Update token status
-      if (data.tokens_used) {
-        setTokenStatus(prev => prev ? { ...prev, used: prev.used + data.tokens_used } : null);
+      // FIX: guard typeof pour éviter [object Object] si jamais l'API retourne autre chose
+      if (data.tokens_used && typeof data.tokens_used === 'number') {
+        setTokenStatus(prev => prev ? { ...prev, used: prev.used + data.tokens_used! } : null);
       }
 
       if (user?.id) {
         try {
-          const newMessages = [...messages, { role: 'user' as Role, content: finalQuery }];
-          await supabase
-            .from('ai_conversations')
-            .upsert({
-              user_id: user.id,
-              session_id: sessionId,
-              messages: JSON.stringify(newMessages),
-              last_query: finalQuery,
-            });
-
-          loadConversations();
+          // FIX: on sauvegarde via setMessages callback pour avoir l'état complet
+          // incluant la réponse d'Albus
+          setMessages(prev => {
+            const fullMessages = prev;
+            supabase
+              .from('ai_conversations')
+              .upsert({
+                user_id: user.id,
+                session_id: sessionIdRef.current,
+                messages: JSON.stringify(fullMessages),
+                last_query: finalQuery,
+                updated_at: new Date().toISOString(),
+              })
+              .then(() => loadConversations())
+              .catch(err => console.error('Save error:', err));
+            return prev; // pas de mutation
+          });
         } catch (saveErr) {
           console.error('Save error:', saveErr);
         }
@@ -262,9 +269,9 @@ export default function AssistantPage() {
       console.error('Error:', e);
       const errorMsg = e.message || 'Erreur technique. Réessaie.';
       setError(errorMsg);
-      setMessages((prev) => [...prev, { 
-        role: 'assistant', 
-        content: 'Désolé, j\'ai eu une erreur. Réessaie dans un instant.' 
+      setMessages((prev) => [...prev, {
+        role: 'assistant',
+        content: 'Désolé, j\'ai eu une erreur. Réessaie dans un instant.'
       }]);
     } finally {
       setLoading(false);
@@ -274,7 +281,7 @@ export default function AssistantPage() {
   document.title = 'Albus - Assistant Gaming Factiony';
 
   const tokenPercentage = tokenStatus ? (tokenStatus.used / tokenStatus.limit) * 100 : 0;
-  const isLowOnTokens = tokenPercentage > 80;
+  const isLowOnTokens = tokenPercentage >= 75;
 
   return (
     <div className="flex h-screen bg-gray-900">
@@ -291,22 +298,17 @@ export default function AssistantPage() {
             </button>
           </div>
 
-          {/* Token Status */}
-          {tokenStatus && (
-            <div className="p-4 border-b border-gray-700">
-              <p className="text-xs text-gray-400 font-semibold mb-2">Tokens {tokenStatus.tier}</p>
-              <div className="w-full bg-gray-700 rounded-full h-2 overflow-hidden">
-                <div
-                  className={`h-full transition-all ${isLowOnTokens ? 'bg-red-500' : 'bg-orange-500'}`}
-                  style={{ width: `${Math.min(tokenPercentage, 100)}%` }}
-                />
+          {/* Token Warning — visible uniquement à 75%+ */}
+          {tokenStatus && isLowOnTokens && (
+            <div className="p-3 border-b border-gray-700 bg-gray-750">
+              <div className="flex items-center gap-2">
+                <span className="text-orange-400 text-sm">⚠️</span>
+                <p className="text-xs text-orange-300">
+                  {tokenStatus.tier === 'free'
+                    ? 'Tu approches ta limite mensuelle. Upgrade premium pour continuer !'
+                    : 'Tu approches ta limite mensuelle premium.'}
+                </p>
               </div>
-              <p className="text-xs text-gray-400 mt-1">
-                {tokenStatus.used} / {tokenStatus.limit}
-              </p>
-              {isLowOnTokens && tokenStatus.tier === 'free' && (
-                <p className="text-xs text-red-400 mt-2">Presque à limite. Upgrade premium!</p>
-              )}
             </div>
           )}
 
@@ -406,10 +408,10 @@ export default function AssistantPage() {
                               )}
                               <p className="text-gray-400 text-xs mb-2">{r.why}</p>
                               {r.url && (
-                                <a 
+                                <a
                                   href={r.url}
-                                  target='_blank' 
-                                  rel='noopener noreferrer' 
+                                  target='_blank'
+                                  rel='noopener noreferrer'
                                   className='text-orange-400 hover:text-orange-300 text-xs underline block'
                                 >
                                   Pour en savoir plus sur {r.title}
