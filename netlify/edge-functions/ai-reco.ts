@@ -456,10 +456,16 @@ export default async (request: Request) => {
   const authHeader = request.headers.get("Authorization") ?? "";
   const userJwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : SUPABASE_ANON_KEY;
 
-  // Fetch profil d'abord pour avoir les plateformes user avant RAWG
-  const userProfileData = await fetchUserProfile(SUPABASE_URL, SUPABASE_ANON_KEY, userJwt, userId, understanding.type);
+  // Tout en parallèle — profil + Brave + RAWG sans plateforme d'abord
+  const [webData, rawgDataInitial, userProfileData] = await Promise.all([
+    BRAVE_API_KEY
+      ? braveWebSearch(understanding, query, BRAVE_API_KEY)
+      : Promise.resolve({ results: "", tokens: 0 }),
+    intelligentRawgSearch(understanding, RAWG_API_KEY, []), // sans filtre plateforme d'abord
+    fetchUserProfile(SUPABASE_URL, SUPABASE_ANON_KEY, userJwt, userId, understanding.type),
+  ]);
 
-  // Extraire les plateformes du profil pour les passer à RAWG
+  // Extraire les plateformes du profil
   const userPlatformNames = userProfileData.profile.reviews
     .map((r: any) => r.platform)
     .filter(Boolean)
@@ -468,12 +474,12 @@ export default async (request: Request) => {
     .sort((a: any, b: any) => b[1] - a[1])
     .map(([p]) => p.toLowerCase());
 
-  const [webData, rawgData] = await Promise.all([
-    BRAVE_API_KEY
-      ? braveWebSearch(understanding, query, BRAVE_API_KEY)
-      : Promise.resolve({ results: "", tokens: 0 }),
-    intelligentRawgSearch(understanding, RAWG_API_KEY, sortedUserPlatforms),
-  ]);
+  // Si on a des plateformes user ET que la query ne spécifie pas de plateforme,
+  // refaire RAWG avec le bon filtre plateforme
+  let rawgData = rawgDataInitial;
+  if (sortedUserPlatforms.length > 0 && understanding.platforms?.length === 0) {
+    rawgData = await intelligentRawgSearch(understanding, RAWG_API_KEY, sortedUserPlatforms);
+  }
 
   tokenUsage.web_search = webData.tokens;
   tokenUsage.rawg_search = rawgData.tokens;
