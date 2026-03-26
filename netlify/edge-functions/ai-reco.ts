@@ -301,13 +301,17 @@ async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey:
 }
 
 // ==================== USER PROFILE ====================
-async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userId: string, queryType: string): Promise<{ profile: UserProfile; tokens: number }> {
+async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userJwt: string, userId: string, queryType: string): Promise<{ profile: UserProfile; tokens: number }> {
   if (queryType === "gameplay" || !userId) {
     return { profile: { likedGames: [], averageRating: 0, reviews: [], summary: "N/A" }, tokens: 0 };
   }
 
   try {
-    const headers = { "apikey": supabaseKey, "Authorization": `Bearer ${supabaseKey}` };
+    // FIX: utilise le JWT user pour bypasser le RLS Supabase
+    const headers = {
+      "apikey": supabaseKey,
+      "Authorization": `Bearer ${userJwt}`,
+    };
 
     const [followsRes, ratingsRes] = await Promise.all([
       fetch(`${supabaseUrl}/rest/v1/game_follows?user_id=eq.${userId}&select=game_id,game_name&limit=50&order=created_at.desc`, { headers }),
@@ -419,12 +423,16 @@ export default async (request: Request) => {
   // ==================== STEP 2: PARALLEL ====================
   console.log("[ALBUS] Step 2: Parallel Execution (Brave + RAWG + Profil)...");
 
+  // Récupère le JWT user depuis le header Authorization pour bypasser le RLS
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const userJwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : SUPABASE_ANON_KEY;
+
   const [webData, rawgData, userProfileData] = await Promise.all([
     BRAVE_API_KEY
       ? braveWebSearch(understanding, query, BRAVE_API_KEY)
       : Promise.resolve({ results: "", tokens: 0 }),
     intelligentRawgSearch(understanding, RAWG_API_KEY),
-    fetchUserProfile(SUPABASE_URL, SUPABASE_ANON_KEY, userId, understanding.type),
+    fetchUserProfile(SUPABASE_URL, SUPABASE_ANON_KEY, userJwt, userId, understanding.type),
   ]);
 
   tokenUsage.web_search = webData.tokens;
