@@ -1,4 +1,4 @@
-// netlify/edge-functions/ai-reco.ts - TRUE AGENTIC ALBUS V5 (WEB FOR ALL + PARALLEL)
+// netlify/edge-functions/ai-reco.ts - TRUE AGENTIC ALBUS V6 (BRAVE SEARCH REAL WEB)
 
 function jsonResponse(body: any, status = 200, corsHeaders: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
@@ -117,7 +117,10 @@ IMPORTANT: Réponds UNIQUEMENT avec le JSON ci-dessus. Aucun champ supplémentai
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeout = setTimeout(() => {
+      console.log("[ALBUS] Understanding TIMEOUT après 10s");
+      controller.abort();
+    }, 10000);
 
     const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
       method: "POST",
@@ -159,69 +162,78 @@ IMPORTANT: Réponds UNIQUEMENT avec le JSON ci-dessus. Aucun champ supplémentai
   };
 }
 
-// ==================== WEB SEARCH (tous les types) ====================
-async function intelligentWebSearch(understanding: QueryUnderstanding, query: string, mistralKey: string): Promise<{ results: string; tokens: number }> {
-  // Gameplay → toujours (builds/patches/meta changent)
-  // Recommendation temporelle → toujours
-  // Recommendation all_time → inutile
+// ==================== BRAVE SEARCH (vrai web search) ====================
+async function braveWebSearch(understanding: QueryUnderstanding, query: string, braveKey: string): Promise<{ results: string; tokens: number }> {
   if (!understanding.temporal.needs_current_data) {
+    console.log("[ALBUS] Brave Search: OFF (all_time)");
     return { results: "", tokens: 0 };
   }
 
+  // Construction de la query de recherche
   let searchQuery = query;
   if (understanding.type === "gameplay") {
-    searchQuery = `${query} guide 2026`;
+    searchQuery = `${query} guide tips 2026`;
   } else if (understanding.temporal.label !== "all_time") {
-    searchQuery += ` ${understanding.temporal.label} 2026`;
+    searchQuery = `${query} ${understanding.temporal.label} 2026`;
   }
 
-  const prompt = `Cherche: "${searchQuery}"
-
-${understanding.type === "gameplay"
-    ? `Résume EN FRANÇAIS en 3-4 phrases les infos gaming utiles:
-1. Stratégies/builds recommandés
-2. Patches récents qui changent la meta
-3. Conseils communauté
-4. Tier lists ou rankings si pertinents`
-    : `Résume EN FRANÇAIS en 3-4 phrases les infos gaming pertinentes:
-1. Jeux trouvés avec dates
-2. Plateformes disponibles
-3. Avis/scores pertinents
-4. Contexte (découvertes, buzz)`}`;
+  console.log("[ALBUS] Brave Search: ON → query:", searchQuery);
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => {
+      console.log("[ALBUS] Brave Search TIMEOUT après 5s");
+      controller.abort();
+    }, 5000);
 
-    const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
-      method: "POST",
+    // Brave LLM Context API — résultats optimisés pour les agents IA
+    const braveUrl = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(searchQuery)}&count=5&search_lang=fr&country=fr&text_decorations=false&extra_snippets=true`;
+
+    const res = await fetch(braveUrl, {
       signal: controller.signal,
-      headers: { Authorization: "Bearer " + mistralKey, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "mistral-small-latest",
-        temperature: 0.5,
-        max_tokens: 400,
-        messages: [{ role: "user", content: prompt }],
-      }),
+      headers: {
+        "X-Subscription-Token": braveKey,
+        "Accept": "application/json",
+        "Accept-Encoding": "gzip",
+      },
     });
     clearTimeout(timeout);
 
-    if (res.ok) {
-      const json = await res.json();
-      const text = json?.choices?.[0]?.message?.content ?? "";
-      return { results: text, tokens: estimateTokens(prompt + text) };
+    if (!res.ok) {
+      console.error("[ALBUS] Brave Search HTTP error:", res.status);
+      return { results: "", tokens: 0 };
     }
-  } catch (e) {
-    console.error("[ALBUS] Web search timeout/error:", e);
-  }
 
-  return { results: "", tokens: 0 };
+    const data = await res.json();
+    const webResults = data?.web?.results ?? [];
+
+    if (webResults.length === 0) {
+      console.log("[ALBUS] Brave Search: 0 résultats");
+      return { results: "", tokens: 0 };
+    }
+
+    // Formatage des résultats pour Mistral
+    const formatted = webResults
+      .slice(0, 5)
+      .map((r: any, i: number) => {
+        const snippet = r.extra_snippets?.[0] || r.description || "";
+        return `[${i + 1}] ${r.title}\n${snippet}`;
+      })
+      .join("\n\n");
+
+    console.log("[ALBUS] Brave Search: ✅", webResults.length, "résultats");
+    return { results: formatted, tokens: estimateTokens(formatted) };
+
+  } catch (e) {
+    console.error("[ALBUS] Brave Search error:", e);
+    return { results: "", tokens: 0 };
+  }
 }
 
 // ==================== RAWG SEARCH ====================
 async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey: string): Promise<{ games: any[]; tokens: number }> {
-  // RAWG inutile pour gameplay
   if (understanding.type === "gameplay") {
+    console.log("[ALBUS] RAWG: OFF (gameplay)");
     return { games: [], tokens: 0 };
   }
 
@@ -261,11 +273,12 @@ async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey:
   let games: any[] = [];
   try {
     const rawgUrl = "https://api.rawg.io/api/games?" + rawgParams.toString();
-    console.log("[ALBUS] RAWG URL:", rawgUrl.substring(0, 100) + "...");
+    console.log("[ALBUS] RAWG URL:", rawgUrl.substring(0, 120) + "...");
     const rawgRes = await fetch(rawgUrl);
     if (rawgRes.ok) {
       const rawgData = await rawgRes.json();
       games = rawgData.results || [];
+      console.log("[ALBUS] RAWG: ✅", games.length, "jeux bruts");
     }
   } catch (e) {
     console.error("[ALBUS] RAWG error:", e);
@@ -281,7 +294,7 @@ async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey:
         return d >= startDate && d <= endDate;
       })
       .sort((a, b) => new Date(b.released).getTime() - new Date(a.released).getTime());
-    console.log("[ALBUS] Client-side filtering:", games.length, "games in date range");
+    console.log("[ALBUS] RAWG après filtre date:", games.length, "jeux");
   }
 
   return { games, tokens: estimateTokens(JSON.stringify(games.slice(0, 20))) };
@@ -294,34 +307,50 @@ async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userId
   }
 
   try {
-    const [signalsRes, commentsRes] = await Promise.all([
-      fetch(`${supabaseUrl}/rest/v1/game_signals?user_id=eq.${userId}&limit=100&signal_type=eq.like`, {
-        headers: { "apikey": supabaseKey, "Authorization": `Bearer ${supabaseKey}` },
-      }),
-      fetch(`${supabaseUrl}/rest/v1/game_comments?user_id=eq.${userId}&limit=50`, {
-        headers: { "apikey": supabaseKey, "Authorization": `Bearer ${supabaseKey}` },
-      }),
+    const headers = { "apikey": supabaseKey, "Authorization": `Bearer ${supabaseKey}` };
+
+    const [followsRes, ratingsRes] = await Promise.all([
+      fetch(`${supabaseUrl}/rest/v1/game_follows?user_id=eq.${userId}&select=game_id,game_name&limit=50&order=created_at.desc`, { headers }),
+      fetch(`${supabaseUrl}/rest/v1/game_ratings?user_id=eq.${userId}&select=game_id,game_slug,rating,rating_gameplay,rating_story,platform&limit=50&order=created_at.desc`, { headers }),
     ]);
 
-    const signals = signalsRes.ok ? await signalsRes.json() : [];
-    const comments = commentsRes.ok ? await commentsRes.json() : [];
+    const follows = followsRes.ok ? await followsRes.json() : [];
+    const ratings = ratingsRes.ok ? await ratingsRes.json() : [];
+
+    console.log("[ALBUS] Profile → follows:", follows.length, "| ratings:", ratings.length);
 
     let averageRating = 0;
-    if (comments.length > 0) {
-      const ratings = comments.map((c: any) => c.rating).filter((r: any) => r);
-      averageRating = ratings.length > 0
-        ? Math.round((ratings.reduce((a: number, b: number) => a + b, 0) / ratings.length) * 10) / 10
+    if (ratings.length > 0) {
+      const ratingValues = ratings.map((r: any) => Number(r.rating)).filter((r: number) => !isNaN(r) && r > 0);
+      averageRating = ratingValues.length > 0
+        ? Math.round((ratingValues.reduce((a: number, b: number) => a + b, 0) / ratingValues.length) * 10) / 10
         : 0;
     }
 
+    const followedNames = follows.slice(0, 8).map((f: any) => f.game_name).filter(Boolean);
+    const ratedGames = ratings.slice(0, 5).map((r: any) =>
+      `${r.game_slug || r.game_id} (${r.rating}/5${r.platform ? ` sur ${r.platform}` : ""})`
+    );
+
+    const topRated = ratings.filter((r: any) => Number(r.rating) >= 4);
+    const platformPref = ratings
+      .map((r: any) => r.platform)
+      .filter(Boolean)
+      .reduce((acc: Record<string, number>, p: string) => { acc[p] = (acc[p] || 0) + 1; return acc; }, {});
+    const topPlatform = Object.entries(platformPref).sort((a: any, b: any) => b[1] - a[1])[0]?.[0];
+
     const profile: UserProfile = {
-      likedGames: signals, averageRating, reviews: comments,
+      likedGames: follows,
+      averageRating,
+      reviews: ratings,
       summary: `
-USER PASSION (FACTIONY):
-- A aimé ${signals.length} jeux
-- Noté ${comments.length} jeux avec moyenne ${averageRating}/5
-- Type de joueur: ${averageRating >= 4 ? "Exigeant (4+/5)" : averageRating >= 3 ? "Standard (3+/5)" : "Explorateur (tous genres)"}
-Jeux aimés: ${signals.slice(0, 5).map((s: any) => `#${s.game_id}`).join(", ")}`,
+USER PROFIL FACTIONY:
+- Suit ${follows.length} jeux: ${followedNames.join(", ") || "aucun"}
+- A noté ${ratings.length} jeux, moyenne ${averageRating}/5
+- ${topRated.length} jeux notés 4+/5 (exigeant sur la qualité)
+- Plateforme préférée: ${topPlatform || "non renseignée"}
+- Derniers jeux notés: ${ratedGames.join(" | ") || "aucun"}
+- Profil: ${averageRating >= 4 ? "Joueur exigeant" : averageRating >= 3 ? "Joueur standard" : follows.length > 10 ? "Explorateur curieux" : "Nouveau sur Factiony"}`,
     };
 
     return { profile, tokens: estimateTokens(JSON.stringify(profile)) };
@@ -346,10 +375,15 @@ export default async (request: Request) => {
   const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
   const MISTRAL_API_KEY = Deno.env.get("MISTRAL_API_KEY");
   const RAWG_API_KEY = Deno.env.get("VITE_RAWG_API_KEY") || "11b490685c024c71a0c6562e37e1a87d";
+  const BRAVE_API_KEY = Deno.env.get("BRAVE_SEARCH_API_KEY");
   const BASE_URL = Deno.env.get("FACTIONY_BASE_URL") ?? "https://factiony.com";
 
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !MISTRAL_API_KEY) {
     return jsonResponse({ error: "Missing env vars" }, 500, corsHeaders);
+  }
+
+  if (!BRAVE_API_KEY) {
+    console.warn("[ALBUS] BRAVE_SEARCH_API_KEY manquant — web search désactivé");
   }
 
   let body: any;
@@ -367,13 +401,13 @@ export default async (request: Request) => {
     user_data: 0, reasoning: 0, total: 0,
   };
 
-  console.log("[ALBUS] 🤖 TRUE AGENTIC V5 - Query:", query);
+  console.log("[ALBUS] 🤖 TRUE AGENTIC V6 (BRAVE SEARCH) - Query:", query);
 
   // ==================== STEP 1: UNDERSTANDING ====================
   console.log("[ALBUS] Step 1: Deep Query Understanding...");
   const { understanding, tokens: understandingTokens } = await deepQueryUnderstanding(query, MISTRAL_API_KEY);
   tokenUsage.deep_understanding = understandingTokens;
-  console.log("[ALBUS] Understanding:", understanding);
+  console.log("[ALBUS] Understanding:", JSON.stringify(understanding));
 
   if (understanding.type === "blocked") {
     return jsonResponse({
@@ -383,11 +417,12 @@ export default async (request: Request) => {
   }
 
   // ==================== STEP 2: PARALLEL ====================
-  console.log("[ALBUS] Step 2: Parallel Execution...");
-  console.log("[ALBUS] Web:", understanding.temporal.needs_current_data ? "✅" : "❌", "| RAWG:", understanding.type === "recommendation" ? "✅" : "❌");
+  console.log("[ALBUS] Step 2: Parallel Execution (Brave + RAWG + Profil)...");
 
   const [webData, rawgData, userProfileData] = await Promise.all([
-    intelligentWebSearch(understanding, query, MISTRAL_API_KEY),
+    BRAVE_API_KEY
+      ? braveWebSearch(understanding, query, BRAVE_API_KEY)
+      : Promise.resolve({ results: "", tokens: 0 }),
     intelligentRawgSearch(understanding, RAWG_API_KEY),
     fetchUserProfile(SUPABASE_URL, SUPABASE_ANON_KEY, userId, understanding.type),
   ]);
@@ -396,7 +431,7 @@ export default async (request: Request) => {
   tokenUsage.rawg_search = rawgData.tokens;
   tokenUsage.user_data = userProfileData.tokens;
 
-  console.log("[ALBUS] Web:", webData.results ? "✅" : "❌", "| RAWG:", rawgData.games.length, "games | Profile:", userProfileData.profile.likedGames.length, "likes");
+  console.log("[ALBUS] Parallel done → Brave:", webData.results ? "✅" : "❌", "| RAWG:", rawgData.games.length, "| Profile:", userProfileData.profile.likedGames.length, "follows");
 
   // ==================== STEP 3: REASONING ====================
   console.log("[ALBUS] Step 3: Final Reasoning...");
@@ -410,13 +445,18 @@ Conseils directs, pratiques, précis. PAS D'ASTÉRISQUES.`;
 
     const userPrompt = `Question: ${query}
 
-${webData.results ? `DONNÉES WEB RÉCENTES:\n${webData.results}` : "Pas de données web disponibles, réponds avec tes connaissances."}
+${webData.results
+      ? `DONNÉES WEB RÉCENTES (Brave Search):\n${webData.results}`
+      : "Pas de données web disponibles, réponds avec tes connaissances."}
 
 Réponds avec les meilleures stratégies/builds/conseils. Sois précis et actionnable.`;
 
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 20000);
+      const timeout = setTimeout(() => {
+        console.log("[ALBUS] Gameplay reasoning TIMEOUT après 20s");
+        controller.abort();
+      }, 20000);
 
       const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
         method: "POST",
@@ -441,9 +481,12 @@ Réponds avec les meilleures stratégies/builds/conseils. Sois précis et action
         tokenUsage.reasoning = estimateTokens(systemPrompt + userPrompt + answer);
         tokenUsage.total = Object.values(tokenUsage).reduce((a, b) => a + b, 0);
 
+        console.log("[ALBUS] ✅ Gameplay | Tokens:", tokenUsage.total, "| Web data:", !!webData.results);
+
         return jsonResponse({
           query, user_pseudo: userPseudo, mode: "gameplay",
-          answer: clean, tokens_used: tokenUsage,
+          answer: clean,
+          tokens_used: tokenUsage.total,
           has_web_data: !!webData.results,
         }, 200, corsHeaders);
       }
@@ -487,7 +530,7 @@ Réponds avec les meilleures stratégies/builds/conseils. Sois précis et action
 ${understanding.comparisons.length > 0 ? `- Comparaisons: ${understanding.comparisons.join(", ")}` : ""}
 - Temporal: ${understanding.temporal.label}
 
-📱 DONNÉES WEB:
+🌐 DONNÉES WEB RÉELLES (Brave Search):
 ${webData.results || "Pas de données web"}
 
 🎮 JEUX RAWG (${gamesData.length} dispo, triés par ${understanding.temporal.start_date ? "date" : "rating"}):
@@ -498,7 +541,7 @@ ${userProfileData.profile.summary}
 
 📋 TASK:
 1. FUSIONNE Web + RAWG + User profile
-2. Recommande 1-3 jeux en expliquant pourquoi c'est bon POUR CET USER
+2. Recommande 1-3 jeux en expliquant pourquoi c'est bon POUR CET USER spécifiquement
 3. Pose 1 question courte après
 
 Format:
@@ -510,7 +553,10 @@ Description (POURQUOI pour lui spécifiquement)
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
+    const timeout = setTimeout(() => {
+      console.log("[ALBUS] Recommendation reasoning TIMEOUT après 20s");
+      controller.abort();
+    }, 20000);
 
     const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
       method: "POST",
@@ -582,13 +628,13 @@ Description (POURQUOI pour lui spécifiquement)
       }
 
       tokenUsage.total = Object.values(tokenUsage).reduce((a, b) => a + b, 0);
-      console.log("[ALBUS] ✅ Recs:", recs.length, "| Tokens:", tokenUsage.total);
+      console.log("[ALBUS] ✅ Recs:", recs.length, "| Tokens:", tokenUsage.total, "| Web:", !!webData.results);
 
       return jsonResponse({
         query, user_pseudo: userPseudo, mode: "recommendation",
         recommendations: recs,
         personal_message: questionText,
-        tokens_used: tokenUsage,
+        tokens_used: tokenUsage.total,
         understanding_data: understanding,
       }, 200, corsHeaders);
     }
