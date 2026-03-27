@@ -66,18 +66,12 @@
 }
 
 /* ── Axe des étoiles ─────────────────────────────────────────────────────────── */
-.rating-histogram__axis {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 6px;
-  /* On aligne les 5 labels sur les barres pleines (1★ … 5★)
-     Les demi-étoiles n'ont pas de label → l'espacement naturel les centre */
-  padding: 0 calc(0.7 / (0.7 + 1) / 10 * 100%);  /* compense les flex--half */
-}
-
 .rating-histogram__axis-label {
-  font-size: 0.65rem;
+  font-size: 0.6rem;
   color: var(--text-muted, #8b949e);
-  letter-spacing: -0.03em;
+  text-align: center;
+  width: 100%;
+  display: block;
+  margin-top: 5px;
   user-select: none;
 }

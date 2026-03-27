@@ -36,6 +36,7 @@ import { Game } from '../../types';
 import { getGameById } from '../../apiClient';
 import { supabase } from '../../lib/supabaseClient';
 import AvatarDisplay from '../AvatarDisplay';
+import RatingHistogram from '../RatingHistogram';
 
 interface UserProfileViewProps {
   userId: string; // can be UUID OR username (for /u/:username)
@@ -484,7 +485,9 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
           </div>
         </div>
       )}
-
+      
+{/* Histogramme des notes */}
+      <RatingHistogram userId={profileUser.id} />
       <div className="bg-gray-800 rounded-xl p-6 mb-8 border border-gray-700">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-bold text-white">Top 4 jeux les mieux notés</h2>

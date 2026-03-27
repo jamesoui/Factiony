@@ -104,13 +104,20 @@ export default function RatingHistogram({ userId }: RatingHistogramProps) {
       </div>
 
       {/* Axe étoiles */}
-      <div className="rating-histogram__axis">
-        {STAR_LABELS.map((n) => (
-          <span key={n} className="rating-histogram__axis-label">
-            {"★".repeat(n)}
-          </span>
-        ))}
-      </div>
+      <div className="rating-histogram">
+  {RATING_STEPS.map((step) => (
+    <div
+      key={`label-${step}`}
+      className={`rating-histogram__bar-wrap ${step % 1 !== 0 ? "rating-histogram__bar-wrap--half" : ""}`}
+    >
+      {step % 1 === 0 && (
+        <span className="rating-histogram__axis-label">
+          {"★".repeat(step)}
+        </span>
+      )}
+    </div>
+  ))}
+</div>
     </section>
   );
 }
