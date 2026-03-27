@@ -1,0 +1,83 @@
+/* RatingHistogram.css
+   Importe ce fichier dans RatingHistogram.tsx ou dans ton CSS global
+   ------------------------------------------------------------------ */
+
+/* ── Section wrapper ────────────────────────────────────────────────────────── */
+.rating-histogram-section {
+  background: var(--card-bg, #1a1f2e);          /* même fond que les cards stats */
+  border-radius: 12px;
+  padding: 20px 24px 14px;
+  margin: 0 0 24px;                              /* gap entre Stats et Top 4 */
+}
+
+.rating-histogram-section__title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted, #8b949e);
+  margin: 0 0 14px;
+}
+
+/* ── Histogramme ─────────────────────────────────────────────────────────────── */
+.rating-histogram {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 60px;                 /* hauteur max des barres */
+  width: 100%;
+}
+
+.rating-histogram__bar-wrap {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+}
+
+/* Demi-étoile : légèrement plus étroite */
+.rating-histogram__bar-wrap--half {
+  flex: 0.7;
+}
+
+/* ── Barres ──────────────────────────────────────────────────────────────────── */
+.rating-histogram__bar {
+  width: 100%;
+  background: var(--color-primary, #f97316);    /* orange Factiony */
+  border-radius: 3px 3px 0 0;
+  transition: height 0.35s ease;
+  min-height: 0;
+}
+
+/* Demi-étoile : teinte plus douce */
+.rating-histogram__bar--half {
+  background: color-mix(in srgb, var(--color-primary, #f97316) 55%, transparent);
+}
+
+/* Skeleton loader */
+.rating-histogram--skeleton .rating-histogram__bar--skeleton {
+  background: var(--skeleton-bg, #2d3348);
+  animation: shimmer 1.4s infinite ease-in-out;
+}
+
+@keyframes shimmer {
+  0%, 100% { opacity: 0.5; }
+  50%       { opacity: 1;   }
+}
+
+/* ── Axe des étoiles ─────────────────────────────────────────────────────────── */
+.rating-histogram__axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  /* On aligne les 5 labels sur les barres pleines (1★ … 5★)
+     Les demi-étoiles n'ont pas de label → l'espacement naturel les centre */
+  padding: 0 calc(0.7 / (0.7 + 1) / 10 * 100%);  /* compense les flex--half */
+}
+
+.rating-histogram__axis-label {
+  font-size: 0.65rem;
+  color: var(--text-muted, #8b949e);
+  letter-spacing: -0.03em;
+  user-select: none;
+}

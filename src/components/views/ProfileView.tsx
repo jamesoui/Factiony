@@ -13,6 +13,8 @@ import { supabase } from '../../lib/supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import { gameToSlug } from '../../utils/slugify';
 import { SimpleGameCard } from '../SimpleGameCard';
+import RatingHistogram from '../RatingHistogram';
+import '../RatingHistogram.css';
 
 interface ProfileViewProps {
   onViewChange: (view: string) => void;
@@ -274,6 +276,9 @@ return { ...section, games: orderedGames };
           <div className="text-sm text-gray-400">{t('profile.averageRating')}</div>
         </div>
       </div>
+
+{/* Histogramme des notes */}
+      <RatingHistogram userId={user.id} />
 
       {/* Top 4 */}
       <div className="bg-gray-800 rounded-xl p-6 mb-8 border border-gray-700">
