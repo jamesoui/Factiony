@@ -9,11 +9,13 @@ import ReviewCommentItem from './ReviewCommentItem';
 interface ReviewCommentsListProps {
   reviewId: string;
   onUserClick?: (userId: string) => void;
+  onCommentPosted?: () => void; // ← callback pour notifier le parent (feed)
 }
 
 const ReviewCommentsList: React.FC<ReviewCommentsListProps> = ({
   reviewId,
-  onUserClick
+  onUserClick,
+  onCommentPosted
 }) => {
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -36,7 +38,6 @@ const ReviewCommentsList: React.FC<ReviewCommentsListProps> = ({
     try {
       const data = await getReviewComments(reviewId);
       setComments(data);
-
       const totalCount = data.reduce((sum, comment) => {
         return sum + 1 + (comment.replies_count || 0);
       }, 0);
@@ -50,11 +51,7 @@ const ReviewCommentsList: React.FC<ReviewCommentsListProps> = ({
 
   const handleSubmitComment = async () => {
     if (!newComment.trim()) return;
-
-    if (!user) {
-      requireAuth();
-      return;
-    }
+    if (!user) { requireAuth(); return; }
 
     setIsSubmitting(true);
     try {
@@ -65,7 +62,9 @@ const ReviewCommentsList: React.FC<ReviewCommentsListProps> = ({
 
       if (result.success) {
         setNewComment('');
-        loadComments();
+        await loadComments();
+        // Notifier le feed pour incrémenter le compteur live
+        onCommentPosted?.();
       }
     } catch (error) {
       console.error('Error submitting comment:', error);
@@ -75,10 +74,7 @@ const ReviewCommentsList: React.FC<ReviewCommentsListProps> = ({
   };
 
   const handleToggleComments = () => {
-    if (!showComments && !user) {
-      requireAuth();
-      return;
-    }
+    if (!showComments && !user) { requireAuth(); return; }
     setShowComments(!showComments);
   };
 
@@ -116,9 +112,7 @@ const ReviewCommentsList: React.FC<ReviewCommentsListProps> = ({
           </div>
 
           {isLoading ? (
-            <div className="text-center text-gray-500 py-4">
-              {t('common.loading')}
-            </div>
+            <div className="text-center text-gray-500 py-4">{t('common.loading')}</div>
           ) : comments.length > 0 ? (
             <div className="space-y-4">
               {comments.map((comment) => (
@@ -132,9 +126,7 @@ const ReviewCommentsList: React.FC<ReviewCommentsListProps> = ({
               ))}
             </div>
           ) : (
-            <div className="text-center text-gray-500 py-4">
-              {t('feed.noComments')}
-            </div>
+            <div className="text-center text-gray-500 py-4">{t('feed.noComments')}</div>
           )}
         </div>
       )}
