@@ -18,7 +18,9 @@ import {
 import {
   likeActivity,
   unlikeActivity,
-  isActivityLikedByUser
+  isActivityLikedByUser,
+  likeReview,
+  unlikeReview
 } from '../../lib/api/likes';
 
 interface FeedViewProps {
@@ -145,8 +147,16 @@ const FeedView: React.FC<FeedViewProps> = ({ onUserClick, onGameClick }) => {
       a.id === activityId ? { ...a, likes_count: (a.likes_count || 0) + (isLiked ? -1 : 1) } : a
     ));
     try {
+      // Like dans activity_likes (feed)
       if (isLiked) await unlikeActivity(activityId);
       else await likeActivity(activityId);
+
+      // Like aussi dans review_likes (fiche jeu) si on a le review_id
+      const reviewId = resolvedReviewIds[activityId];
+      if (reviewId) {
+        if (isLiked) await unlikeReview(reviewId);
+        else await likeReview(reviewId);
+      }
     } catch {
       setLikedActivities(likedActivities);
       setActivities(activities);
@@ -376,6 +386,7 @@ const FeedView: React.FC<FeedViewProps> = ({ onUserClick, onGameClick }) => {
                       reviewId={reviewId}
                       onUserClick={onUserClick}
                       onCommentPosted={() => handleCommentPosted(activity.id)}
+                      defaultOpen={true}
                     />
                   </div>
                 )}
