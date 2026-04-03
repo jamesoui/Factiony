@@ -456,6 +456,59 @@ export default async (request: Request) => {
   const authHeader = request.headers.get("Authorization") ?? "";
   const userJwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : SUPABASE_ANON_KEY;
 
+  // ==================== RATE LIMITING (SERVER-SIDE) ====================
+// Vérification tier depuis Supabase (ne pas faire confiance au client)
+let serverTier = "free";
+if (userId) {
+  try {
+    const subRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/subscriptions?user_id=eq.${userId}&status=eq.active&select=plan&limit=1`,
+      { headers: { "apikey": SUPABASE_ANON_KEY!, "Authorization": `Bearer ${userJwt}` } }
+    );
+    if (subRes.ok) {
+      const subs = await subRes.json();
+      if (subs?.[0]?.plan === "premium") serverTier = "premium";
+    }
+  } catch (e) {
+    console.error("[ALBUS] Tier check error:", e);
+  }
+}
+
+// Vérification tokens utilisés ce mois
+if (userId) {
+  try {
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const usageRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/token_usage?user_id=eq.${userId}&created_at=gte.${monthStart.toISOString()}&select=tokens_used&limit=1`,
+      { headers: { "apikey": SUPABASE_ANON_KEY!, "Authorization": `Bearer ${userJwt}` } }
+    );
+
+    if (usageRes.ok) {
+      const usage = await usageRes.json();
+      const tokensUsed = usage?.[0]?.tokens_used ?? 0;
+      const tokenLimit = serverTier === "premium" ? 100000 : 15000;
+
+      if (tokensUsed >= tokenLimit) {
+        console.log(`[ALBUS] Token limit reached for ${userId}: ${tokensUsed}/${tokenLimit}`);
+        return jsonResponse({
+          error: "token_limit_exceeded",
+          message: serverTier === "premium"
+            ? `Tu as atteint ta limite mensuelle premium (${tokenLimit.toLocaleString()} tokens). Réinitialisation le 1er du mois.`
+            : `Tu as atteint ta limite mensuelle gratuite (${tokenLimit.toLocaleString()} tokens). Passe premium pour 10x plus !`,
+        }, 200, corsHeaders);
+      }
+
+      console.log(`[ALBUS] Tokens: ${tokensUsed}/${tokenLimit} (${serverTier})`);
+    }
+  } catch (e) {
+    console.error("[ALBUS] Token check error:", e);
+    // En cas d'erreur on laisse passer — mieux vaut servir que bloquer
+  }
+}
+
   // Tout en parallèle — profil + Brave + RAWG sans plateforme d'abord
   const [webData, rawgDataInitial, userProfileData] = await Promise.all([
     BRAVE_API_KEY
