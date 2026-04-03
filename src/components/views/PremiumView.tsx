@@ -72,7 +72,7 @@ const { user } = useAuth()
     { icon: Users, title: t('premium.unlimitedLists'), description: 'Rendez votre profil attractif en créant autant de listes que vous voulez (seulement votre Top 4 sans Premium)' },
     { icon: Mail, title: t('premium.weeklyNewsletter'), description: t('premium.weeklyNewsletterDesc') },
     { icon: Users, title: t('premium.adFree'), description: t('premium.adFreeDesc') },
-    { icon: Star, title: t('premium.discordAccess'), description: t('premium.discordAccessDesc') }
+    { icon: Star, title: t('premium.discordAccess'), description: t('premium.discordAccessDesc') },
     { icon: Star, title: 'Albus boosté', description: 'Accès à 100 000 tokens par mois avec Albus (15 000 sans Premium)' },
   ]
 
