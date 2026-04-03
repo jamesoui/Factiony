@@ -80,6 +80,7 @@ export async function rateGame(
         gameCover,
         'review',
         {
+          review_id: data.id,
           rating: rating,
           review_text: reviewText,
           contains_spoilers: containsSpoilers || false
