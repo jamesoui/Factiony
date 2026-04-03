@@ -396,7 +396,7 @@ PROFIL JOUEUR:
 // ==================== MAIN HANDLER ====================
 export default async (request: Request) => {
   const corsHeaders = {
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": "https://factiony.com",
     "Access-Control-Allow-Headers": "content-type, authorization",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
   };
