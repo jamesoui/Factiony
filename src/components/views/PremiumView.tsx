@@ -1,14 +1,10 @@
 import React from 'react'
 import { Crown, Star, Users, Mail, Heart } from 'lucide-react'
 import { useLanguage } from '../../contexts/LanguageContext'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../contexts/AuthContext'
 
 // 🧠 Connexion Supabase
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-)
 
 const PremiumView: React.FC = () => {
   const { t } = useLanguage()
