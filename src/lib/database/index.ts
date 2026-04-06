@@ -1,3 +1,4 @@
+import { logger } from '../logger';
 import { supabaseManager } from './supabase';
 import { firestoreManager } from './firestore';
 
@@ -18,18 +19,18 @@ class DatabaseManager {
   // Méthode pour supprimer toutes les données d'un utilisateur (RGPD)
   async deleteAllUserData(userId: string): Promise<boolean> {
     try {
-      console.log(`🗑️ Suppression RGPD pour l'utilisateur ${userId}...`);
+      logger.log(`🗑️ Suppression RGPD pour l'utilisateur ${userId}...`);
       
       // Supprimer de Firestore d'abord (plus rapide)
       const firestoreSuccess = await this.nosql.deleteUserData(userId);
-      console.log(`${firestoreSuccess ? '✅' : '❌'} Données Firestore supprimées`);
+      logger.log(`${firestoreSuccess ? '✅' : '❌'} Données Firestore supprimées`);
       
       // Puis supprimer de Supabase (avec contraintes FK)
       const supabaseSuccess = await this.sql.deleteUserData(userId);
-      console.log(`${supabaseSuccess ? '✅' : '❌'} Données Supabase supprimées`);
+      logger.log(`${supabaseSuccess ? '✅' : '❌'} Données Supabase supprimées`);
       
       const success = firestoreSuccess && supabaseSuccess;
-      console.log(`${success ? '✅' : '❌'} Suppression RGPD ${success ? 'réussie' : 'échouée'}`);
+      logger.log(`${success ? '✅' : '❌'} Suppression RGPD ${success ? 'réussie' : 'échouée'}`);
       return success;
     } catch (error) {
       console.error('❌ Erreur lors de la suppression des données utilisateur:', error);
@@ -39,7 +40,7 @@ class DatabaseManager {
 
   // Méthode pour vérifier la santé des connexions
   async healthCheck(): Promise<{ supabase: boolean; firestore: boolean; overall: boolean }> {
-    console.log('🏥 Vérification santé des connexions...');
+    logger.log('🏥 Vérification santé des connexions...');
     
     const results = {
       supabase: false,
@@ -63,7 +64,7 @@ class DatabaseManager {
 
     results.overall = results.supabase || results.firestore;
     
-    console.log('🏥 État des connexions:', results);
+    logger.log('🏥 État des connexions:', results);
     return results;
   }
 
@@ -73,14 +74,14 @@ class DatabaseManager {
     subscription: any;
     success: boolean;
   }> {
-    console.log('❌ createCompleteUser supprimé - utilisez les formulaires d\'inscription');
+    logger.log('❌ createCompleteUser supprimé - utilisez les formulaires d\'inscription');
     return { user: null, subscription: null, success: false };
   }
 
   // Ajouter un jeu à une liste utilisateur avec logging
   async addGameToUserList(userId: string, gameId: string, listName: string): Promise<boolean> {
     try {
-      console.log(`📝 Ajout jeu ${gameId} à la liste "${listName}" pour ${userId}`);
+      logger.log(`📝 Ajout jeu ${gameId} à la liste "${listName}" pour ${userId}`);
       
       // 1. Vérifier que l'utilisateur existe
       const user = await this.sql.getUserById(userId);
@@ -107,7 +108,7 @@ class DatabaseManager {
         timestamp: new Date().toISOString()
       });
 
-      console.log('✅ Jeu ajouté à la liste avec succès');
+      logger.log('✅ Jeu ajouté à la liste avec succès');
       return true;
     } catch (error) {
       console.error('❌ Erreur ajout jeu à la liste:', error);
@@ -118,7 +119,7 @@ class DatabaseManager {
   // Liker un jeu avec gestion des doublons
   async likeGame(userId: string, gameId: string): Promise<boolean> {
     try {
-      console.log(`❤️ Gestion like jeu ${gameId} par ${userId}`);
+      logger.log(`❤️ Gestion like jeu ${gameId} par ${userId}`);
       
       // Vérifier si déjà liké
       const existingLikes = await this.nosql.getUserLikes(userId, 1000);
@@ -148,7 +149,7 @@ class DatabaseManager {
   // Suivre un utilisateur avec vérifications
   async followUser(userId: string, targetUserId: string): Promise<boolean> {
     try {
-      console.log(`🤝 Follow: ${userId} → ${targetUserId}`);
+      logger.log(`🤝 Follow: ${userId} → ${targetUserId}`);
       
       // 1. Suivre dans Supabase (avec vérification automatique des comptes privés)
       const follow = await this.sql.followUser(userId, targetUserId);
@@ -160,7 +161,7 @@ class DatabaseManager {
         timestamp: new Date().toISOString()
       });
       
-      console.log(`✅ Follow créé avec succès`);
+      logger.log(`✅ Follow créé avec succès`);
       return true;
     } catch (error) {
       console.error('❌ Erreur follow utilisateur:', error);
@@ -171,7 +172,7 @@ class DatabaseManager {
   // Arrêter de suivre un utilisateur
   async unfollowUser(userId: string, targetUserId: string): Promise<boolean> {
     try {
-      console.log(`💔 Unfollow: ${userId} ↛ ${targetUserId}`);
+      logger.log(`💔 Unfollow: ${userId} ↛ ${targetUserId}`);
       
       // 1. Unfollow dans Supabase
       const success = await this.sql.unfollowUser(userId, targetUserId);
@@ -183,7 +184,7 @@ class DatabaseManager {
         timestamp: new Date().toISOString()
       });
       
-      console.log(`✅ Unfollow traité avec succès`);
+      logger.log(`✅ Unfollow traité avec succès`);
       return true;
     } catch (error) {
       console.error('❌ Erreur unfollow utilisateur:', error);
@@ -209,7 +210,7 @@ class DatabaseManager {
     timestamp: string;
   }> {
     try {
-      console.log('📊 Récupération statistiques globales...');
+      logger.log('📊 Récupération statistiques globales...');
       
       const [sqlStats, nosqlStats] = await Promise.all([
         this.sql.getStats(),
@@ -222,7 +223,7 @@ class DatabaseManager {
         timestamp: new Date().toISOString()
       };
       
-      console.log('📊 Statistiques globales:', globalStats);
+      logger.log('📊 Statistiques globales:', globalStats);
       return globalStats;
     } catch (error) {
       console.error('❌ Erreur récupération statistiques:', error);
@@ -236,7 +237,7 @@ class DatabaseManager {
 
   // Test complet de l'architecture polyglotte
   async runFullArchitectureTest(): Promise<{ success: boolean; report: any }> {
-    console.log('🧪 Test d\'architecture simplifié...');
+    logger.log('🧪 Test d\'architecture simplifié...');
     
     const health = await this.healthCheck();
     const stats = await this.getGlobalStats();
@@ -277,7 +278,7 @@ Timestamp: ${new Date().toISOString()}
 🎯 RÉSULTAT GLOBAL: ${health.overall ? '✅ SUCCÈS' : '❌ ÉCHEC'}
       `;
       
-      console.log(report);
+      logger.log(report);
       return report;
     } catch (error) {
       console.error('❌ Erreur génération rapport:', error);

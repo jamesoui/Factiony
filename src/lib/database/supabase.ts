@@ -1,3 +1,4 @@
+import { logger } from '../logger';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // Types pour les tables Supabase
@@ -52,15 +53,15 @@ class SupabaseManager {
       const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
       if (!supabaseUrl || !supabaseKey) {
-        console.warn('⚠️ Variables d\'environnement Supabase manquantes');
-        console.warn('Configurez VITE_SUPABASE_URL et VITE_SUPABASE_ANON_KEY');
+        logger.warn('⚠️ Variables d\'environnement Supabase manquantes');
+        logger.warn('Configurez VITE_SUPABASE_URL et VITE_SUPABASE_ANON_KEY');
         return;
       }
 
       this.client = createClient(supabaseUrl, supabaseKey);
       this.isConnected = true;
-      console.log('✅ Supabase client initialisé avec succès');
-      console.log(`📍 URL: ${supabaseUrl.substring(0, 30)}...`);
+      logger.log('✅ Supabase client initialisé avec succès');
+      logger.log(`📍 URL: ${supabaseUrl.substring(0, 30)}...`);
     } catch (error) {
       console.error('❌ Erreur initialisation Supabase:', error);
     }
@@ -69,7 +70,7 @@ class SupabaseManager {
   // Vérification de la connexion et des tables
   async healthCheck(): Promise<boolean> {
     if (!this.client || !this.isConnected) {
-      console.warn('⚠️ Client Supabase non initialisé');
+      logger.warn('⚠️ Client Supabase non initialisé');
       return false;
     }
 
@@ -85,7 +86,7 @@ class SupabaseManager {
         return false;
       }
 
-      console.log('✅ Connexion Supabase OK - Table users accessible');
+      logger.log('✅ Connexion Supabase OK - Table users accessible');
       return true;
     } catch (error) {
       console.error('❌ Erreur test connexion Supabase:', error);
@@ -177,7 +178,7 @@ class SupabaseManager {
         return null;
       }
       
-      console.log('✅ Utilisateur mis à jour:', data.email);
+      logger.log('✅ Utilisateur mis à jour:', data.email);
       return data;
     } catch (error) {
       console.error('❌ Exception mise à jour utilisateur:', error);
@@ -201,7 +202,7 @@ class SupabaseManager {
         return [];
       }
       
-      console.log(`✅ ${data?.length || 0} utilisateur(s) trouvé(s) pour "${query}"`);
+      logger.log(`✅ ${data?.length || 0} utilisateur(s) trouvé(s) pour "${query}"`);
       return data || [];
     } catch (error) {
       console.error('❌ Exception recherche utilisateurs:', error);
@@ -238,7 +239,7 @@ class SupabaseManager {
         return null;
       }
       
-      console.log(`✅ Abonnement ${plan} créé pour utilisateur ${user.id}`);
+      logger.log(`✅ Abonnement ${plan} créé pour utilisateur ${user.id}`);
       return data;
     } catch (error) {
       console.error('❌ Exception création abonnement:', error);
@@ -290,7 +291,7 @@ class SupabaseManager {
       const user = await this.updateUser(userId, { is_premium: true });
       if (!user) return false;
       
-      console.log(`✅ Utilisateur ${userId} upgradé vers Premium`);
+      logger.log(`✅ Utilisateur ${userId} upgradé vers Premium`);
       return true;
     } catch (error) {
       console.error('❌ Erreur upgrade Premium:', error);
@@ -309,7 +310,7 @@ class SupabaseManager {
         followed_id: targetUserId
       };
 
-      console.log('followUser - payload envoyé:', payload);
+      logger.log('followUser - payload envoyé:', payload);
 
       const { data, error } = await this.client
         .from('follows')
@@ -319,14 +320,14 @@ class SupabaseManager {
 
       if (error) {
         if (error.message?.includes('Cannot follow private account')) {
-          console.warn('⚠️ Impossible de suivre un compte privé');
+          logger.warn('⚠️ Impossible de suivre un compte privé');
           throw new Error('Impossible de suivre un compte privé');
         }
         console.error('❌ Erreur follow utilisateur:', error);
         return null;
       }
       
-      console.log(`✅ Follow créé: ${userId} → ${targetUserId}`);
+      logger.log(`✅ Follow créé: ${userId} → ${targetUserId}`);
       return data;
     } catch (error) {
       console.error('❌ Exception follow utilisateur:', error);
@@ -349,7 +350,7 @@ class SupabaseManager {
         return false;
       }
       
-      console.log(`✅ Unfollow: ${userId} ↛ ${targetUserId}`);
+      logger.log(`✅ Unfollow: ${userId} ↛ ${targetUserId}`);
       return true;
     } catch (error) {
       console.error('❌ Exception unfollow utilisateur:', error);
@@ -394,7 +395,7 @@ class SupabaseManager {
       }
 
       if (!followsData || followsData.length === 0) {
-        console.log(`✅ 0 utilisateur(s) suivi(s) par ${userId}`);
+        logger.log(`✅ 0 utilisateur(s) suivi(s) par ${userId}`);
         return [];
       }
 
@@ -411,7 +412,7 @@ class SupabaseManager {
       }
 
       const following = usersData || [];
-      console.log(`✅ ${following.length} utilisateur(s) suivi(s) par ${userId}`);
+      logger.log(`✅ ${following.length} utilisateur(s) suivi(s) par ${userId}`);
       return following;
     } catch (error) {
       console.error('❌ Exception récupération following:', error);
@@ -434,7 +435,7 @@ class SupabaseManager {
       }
 
       if (!followsData || followsData.length === 0) {
-        console.log(`✅ 0 follower(s) pour ${userId}`);
+        logger.log(`✅ 0 follower(s) pour ${userId}`);
         return [];
       }
 
@@ -451,7 +452,7 @@ class SupabaseManager {
       }
 
       const followers = usersData || [];
-      console.log(`✅ ${followers.length} follower(s) pour ${userId}`);
+      logger.log(`✅ ${followers.length} follower(s) pour ${userId}`);
       return followers;
     } catch (error) {
       console.error('❌ Exception récupération followers:', error);
@@ -483,7 +484,7 @@ class SupabaseManager {
         .delete()
         .eq('id', userId);
 
-      console.log(`✅ Données utilisateur ${userId} supprimées (RGPD)`);
+      logger.log(`✅ Données utilisateur ${userId} supprimées (RGPD)`);
       return true;
     } catch (error) {
       console.error('❌ Erreur suppression données utilisateur:', error);
@@ -512,7 +513,7 @@ class SupabaseManager {
       const totalFollowships = followsResult.status === 'fulfilled' ? (followsResult.value.count || 0) : 0;
       const totalSubscriptions = subsResult.status === 'fulfilled' ? (subsResult.value.count || 0) : 0;
 
-      console.log(`📊 Stats Supabase: ${totalUsers} utilisateurs, ${totalFollowships} follows, ${totalSubscriptions} abonnements`);
+      logger.log(`📊 Stats Supabase: ${totalUsers} utilisateurs, ${totalFollowships} follows, ${totalSubscriptions} abonnements`);
       
       return {
         totalUsers,
@@ -529,14 +530,14 @@ class SupabaseManager {
   // === MÉTHODES DE TEST CRUD ===
   
   async testCRUDOperations(): Promise<{ success: boolean; details: any }> {
-    console.log('❌ Tests CRUD supprimés - utilisez l\'interface utilisateur');
+    logger.log('❌ Tests CRUD supprimés - utilisez l\'interface utilisateur');
     return { success: true, details: 'Tests désactivés' };
   }
 
   // === MÉTHODES RLS TESTING ===
   
   async testRLSPolicies(): Promise<{ success: boolean; details: any }> {
-    console.log('❌ Tests RLS supprimés - utilisez l\'interface utilisateur');
+    logger.log('❌ Tests RLS supprimés - utilisez l\'interface utilisateur');
     return { success: true, details: 'Tests désactivés' };
   }
 
@@ -565,7 +566,7 @@ class SupabaseManager {
       }
 
       if (data.user) {
-        console.log('✅ Inscription réussie:', email);
+        logger.log('✅ Inscription réussie:', email);
 
         await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -579,9 +580,9 @@ class SupabaseManager {
           if (profileError) {
             console.error('❌ Erreur récupération profil:', profileError);
           } else if (profile) {
-            console.log('✅ Profil utilisateur récupéré:', profile.username);
+            logger.log('✅ Profil utilisateur récupéré:', profile.username);
           } else {
-            console.warn('⚠️ Profil non trouvé, sera créé au prochain chargement');
+            logger.warn('⚠️ Profil non trouvé, sera créé au prochain chargement');
           }
         } catch (profileError) {
           console.error('❌ Exception récupération profil:', profileError);
@@ -607,7 +608,7 @@ class SupabaseManager {
       if (error) {
         console.error('❌ Erreur connexion:', error);
       } else {
-        console.log('✅ Connexion réussie:', email);
+        logger.log('✅ Connexion réussie:', email);
       }
 
       return { user: data.user, error };
@@ -626,7 +627,7 @@ class SupabaseManager {
       if (error) {
         console.error('❌ Erreur déconnexion:', error);
       } else {
-        console.log('✅ Déconnexion réussie');
+        logger.log('✅ Déconnexion réussie');
       }
 
       return { error };

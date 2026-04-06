@@ -1,35 +1,36 @@
+import { logger } from '../logger';
 import { db } from './index';
 
 // Fonction d'initialisation complète des bases de données
 export async function initializeDatabases(): Promise<void> {
   try {
-    console.log('🚀 === INITIALISATION FACTIONY POLYGLOTTE ===');
+    logger.log('🚀 === INITIALISATION FACTIONY POLYGLOTTE ===');
 
     // 1. Vérifier la santé des connexions
-    console.log('🏥 Vérification des connexions...');
+    logger.log('🏥 Vérification des connexions...');
     const health = await db.healthCheck();
     
-    console.log('📊 État des connexions:');
-    console.log(`  - Supabase (PostgreSQL): ${health.supabase ? '✅ Connecté' : '❌ Déconnecté'}`);
-    console.log(`  - Firestore (NoSQL): ${health.firestore ? '✅ Connecté' : '❌ Déconnecté'}`);
+    logger.log('📊 État des connexions:');
+    logger.log(`  - Supabase (PostgreSQL): ${health.supabase ? '✅ Connecté' : '❌ Déconnecté'}`);
+    logger.log(`  - Firestore (NoSQL): ${health.firestore ? '✅ Connecté' : '❌ Déconnecté'}`);
 
     if (!health.overall) {
-      console.warn('⚠️ Aucune base de données connectée - vérifiez vos secrets');
-      console.warn('Secrets requis:');
-      console.warn('  - VITE_SUPABASE_URL');
-      console.warn('  - VITE_SUPABASE_ANON_KEY');
-      console.warn('  - VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID, etc.');
+      logger.warn('⚠️ Aucune base de données connectée - vérifiez vos secrets');
+      logger.warn('Secrets requis:');
+      logger.warn('  - VITE_SUPABASE_URL');
+      logger.warn('  - VITE_SUPABASE_ANON_KEY');
+      logger.warn('  - VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID, etc.');
       return;
     }
 
     // 2. Exécuter les tests complets
-    console.log('🧪 Exécution des tests complets...');
+    logger.log('🧪 Exécution des tests complets...');
     
     if (health.overall) {
-      console.log('✅ Connexions établies avec succès !');
-      console.log('🎯 Bases de données opérationnelles');
+      logger.log('✅ Connexions établies avec succès !');
+      logger.log('🎯 Bases de données opérationnelles');
     } else {
-      console.warn('⚠️ Problème de connexion - vérifiez la configuration');
+      logger.warn('⚠️ Problème de connexion - vérifiez la configuration');
     }
 
     // 3. Initialiser les données de test si nécessaire
@@ -43,11 +44,11 @@ export async function initializeDatabases(): Promise<void> {
       await displayFinalReport();
     }
 
-    console.log('🎉 === INITIALISATION TERMINÉE ===');
-    console.log('🚀 Factiony est prêt à l\'utilisation !');
+    logger.log('🎉 === INITIALISATION TERMINÉE ===');
+    logger.log('🚀 Factiony est prêt à l\'utilisation !');
   } catch (error) {
     console.error('❌ Erreur d\'initialisation:', error);
-    console.warn('⚠️ Continuant en mode dégradé...');
+    logger.warn('⚠️ Continuant en mode dégradé...');
   }
 }
 
@@ -94,7 +95,7 @@ async function cleanupExpiredData(): Promise<void> {
     const archivedLogs = await db.nosql.archiveOldLogs(30);
 
     if (clearedCache > 0 || archivedLogs > 0) {
-      console.log('🧹 Nettoyage Firestore terminé');
+      logger.log('🧹 Nettoyage Firestore terminé');
     }
   } catch (error) {
     // Silently fail - Firestore is optional
@@ -104,13 +105,13 @@ async function cleanupExpiredData(): Promise<void> {
 // Fonction pour afficher le rapport final
 async function displayFinalReport(): Promise<void> {
   try {
-    console.log('📋 Génération du rapport final...');
+    logger.log('📋 Génération du rapport final...');
     
     const report = await db.generateHealthReport();
-    console.log(report);
+    logger.log(report);
     
     // Afficher les actions utilisateurs testées
-    console.log(`
+    logger.log(`
 🎯 === ACTIONS UTILISATEURS TESTÉES ===
 
 ✅ INSCRIPTION:
@@ -147,13 +148,13 @@ async function displayFinalReport(): Promise<void> {
     `);
     
   } catch (error) {
-    console.warn('⚠️ Erreur génération rapport final:', error);
+    logger.warn('⚠️ Erreur génération rapport final:', error);
   }
 }
 
 // Fonction pour tester une action utilisateur spécifique
 export async function testUserAction(action: 'register' | 'follow' | 'like' | 'comment' | 'list'): Promise<boolean> {
-  console.log(`❌ Tests d'actions supprimés - utilisez l'interface utilisateur pour ${action}`);
+  logger.log(`❌ Tests d'actions supprimés - utilisez l'interface utilisateur pour ${action}`);
   return true;
 }
 
@@ -163,23 +164,23 @@ export async function cleanupDatabases(): Promise<void> {
     const health = await db.healthCheck();
 
     if (health.firestore) {
-      console.log('🧹 === NETTOYAGE PÉRIODIQUE ===');
+      logger.log('🧹 === NETTOYAGE PÉRIODIQUE ===');
 
       const clearedCache = await db.nosql.clearExpiredCache();
       const archivedLogs = await db.nosql.archiveOldLogs(90);
 
       if (clearedCache > 0) {
-        console.log(`✅ ${clearedCache} entrée(s) de cache expirées supprimées`);
+        logger.log(`✅ ${clearedCache} entrée(s) de cache expirées supprimées`);
       }
 
       if (archivedLogs > 0) {
-        console.log(`✅ ${archivedLogs} log(s) ancien(s) archivé(s)`);
+        logger.log(`✅ ${archivedLogs} log(s) ancien(s) archivé(s)`);
       }
 
       const stats = await db.getGlobalStats();
-      console.log('📊 Statistiques après nettoyage:', stats);
+      logger.log('📊 Statistiques après nettoyage:', stats);
 
-      console.log('✅ Nettoyage périodique terminé');
+      logger.log('✅ Nettoyage périodique terminé');
     }
   } catch (error) {
     // Silently fail - Firestore is optional
