@@ -49,7 +49,7 @@ export default function Discover() {
               headers: {
                 "x-factiony-key":
                   import.meta.env.VITE_FACTIONY_KEY ??
-                  "FACTIONY_KEY_35d39805f838ac70aa9dca01e4e3ff0764e638dd341728f4",
+                  import.meta.env.VITE_FACTIONY_KEY,
               },
             }
           )
@@ -85,7 +85,7 @@ export default function Discover() {
             headers: {
               "x-factiony-key":
                 import.meta.env.VITE_FACTIONY_KEY ??
-                "FACTIONY_KEY_35d39805f838ac70aa9dca01e4e3ff0764e638dd341728f4",
+                import.meta.env.VITE_FACTIONY_KEY,
             },
           }
         )
@@ -124,7 +124,7 @@ export default function Discover() {
               headers: {
                 "x-factiony-key":
                   import.meta.env.VITE_FACTIONY_KEY ??
-                  "FACTIONY_KEY_35d39805f838ac70aa9dca01e4e3ff0764e638dd341728f4",
+                  import.meta.env.VITE_FACTIONY_KEY,
               },
             }
           )

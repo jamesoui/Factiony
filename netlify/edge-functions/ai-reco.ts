@@ -407,7 +407,7 @@ export default async (request: Request) => {
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
   const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
   const MISTRAL_API_KEY = Deno.env.get("MISTRAL_API_KEY");
-  const RAWG_API_KEY = Deno.env.get("VITE_RAWG_API_KEY") || "11b490685c024c71a0c6562e37e1a87d";
+  const RAWG_API_KEY = Deno.env.get("VITE_RAWG_API_KEY");
   const BRAVE_API_KEY = Deno.env.get("BRAVE_SEARCH_API_KEY");
   const BASE_URL = Deno.env.get("FACTIONY_BASE_URL") ?? "https://factiony.com";
 

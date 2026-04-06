@@ -206,7 +206,7 @@ const GameDetailModal: React.FC<GameDetailModalProps> = ({
   const pageTitle = `${gameName} : Avis, Notes, Forum & Jeux Similaires | Factiony`;
 
   const API_URL = import.meta.env.VITE_API_URL ?? 'https://europe-west1-factiony-1fc0f.cloudfunctions.net/apiFunction';
-  const FACTIONY_KEY = import.meta.env.VITE_FACTIONY_KEY ?? 'FACTIONY_KEY_35d39805f838ac70aa9dca01e4e3ff0764e638dd341728f4';
+  const FACTIONY_KEY = import.meta.env.VITE_FACTIONY_KEY;
 
   const ONBOARDING_GAMES = TOP_100_GAMES.slice(0, 65);
 

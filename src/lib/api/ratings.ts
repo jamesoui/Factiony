@@ -265,7 +265,7 @@ export async function getTopRatedGamesHybrid(limit: number = 15): Promise<any[]>
 
     try {
       const API_URL = import.meta.env.VITE_API_URL ?? 'https://europe-west1-factiony-1fc0f.cloudfunctions.net/apiFunction';
-      const FACTIONY_KEY = import.meta.env.VITE_FACTIONY_KEY ?? 'FACTIONY_KEY_35d39805f838ac70aa9dca01e4e3ff0764e638dd341728f4';
+      const FACTIONY_KEY = import.meta.env.VITE_FACTIONY_KEY;
 
       const response = await fetch(`${API_URL}/games?ordering=-metacritic&metacritic=80,100&page_size=${limit}`, {
         headers: { 'x-factiony-key': FACTIONY_KEY }

@@ -7,7 +7,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-const RAWG_API_KEY = Deno.env.get('VITE_RAWG_API_KEY') || '11b490685c024c71a0c6562e37e1a87d';
+const RAWG_API_KEY = Deno.env.get('VITE_RAWG_API_KEY');
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {

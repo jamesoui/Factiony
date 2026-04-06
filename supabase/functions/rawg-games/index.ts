@@ -7,7 +7,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, content-type",
 };
 
-const RAWG_API_KEY = Deno.env.get('VITE_RAWG_API_KEY') || '11b490685c024c71a0c6562e37e1a87d';
+const RAWG_API_KEY = Deno.env.get('VITE_RAWG_API_KEY');
 const CACHE_TTL_HOURS = 24;
 
 function normalizeCacheKey(pathname: string, searchParams: URLSearchParams): string {
