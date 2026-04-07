@@ -285,7 +285,7 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
                 <BookOpen className="h-5 w-5 text-gray-400" />
               </div>
               <div className="space-y-3">
-                {Object.entries(statusLabels).filter(([k]) => k !== 'all').map(([key, label]) => {
+                {Object.entries(statusLabels).filter(([k]) => k !== 'all' && k !== 'Wishlist').map(([key, label]) => {
                   const count = getStatusCount(key);
                   const pct = ratedGames.length > 0 ? Math.round((count / ratedGames.length) * 100) : 0;
                   return (

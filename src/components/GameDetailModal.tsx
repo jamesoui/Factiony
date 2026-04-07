@@ -1289,14 +1289,11 @@ setTempReview(reviewVal);
                           <div className="flex items-center space-x-1">
                             {renderStars(userRating.rating)}
                           </div>
-                          <span className="text-yellow-400 font-bold text-lg">{userRating.rating.toFixed(1)} ★</span>
+                          <div className="text-sm text-gray-300">🎮 Joué sur : <span className="text-white font-medium">{[...new Set((userRating as any).platform.split(',').map((p: string) => p.trim()))].join(', ')}</span></div>
                         </div>
 
                         {(userRating as any).platform && (
-                          <div className="text-sm text-gray-300">🎮 Joué sur : <span className="text-white font-medium">{(userRating as any).platform}</span></div>
-                        )}
-                        {(userRating as any).platform && (
-  <div className="text-sm text-gray-300">🎮 Joué sur : <span className="text-white font-medium">{(userRating as any).platform}</span></div>
+  <div className="text-sm text-gray-300">🎮 Joué sur : <span className="text-white font-medium">{(userRating as any).platform.split(',').join(', ')}</span></div>
 )}
 {(userRating as any)?.game_status && (
   <div className="text-sm text-gray-300">
