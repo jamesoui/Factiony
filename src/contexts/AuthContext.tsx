@@ -1,3 +1,4 @@
+import { logger } from '../lib/logger';
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User } from '../types';
 import { loadUserData } from '../lib/utils/userLoader';
@@ -31,7 +32,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   const login = async (email: string, password: string) => {
-    console.log('🔐 Tentative de connexion:', email);
+    logger.log('🔐 Tentative de connexion:', email);
     try {
       const { db } = await import('../lib/database');
       const signInResult = await db.sql.signIn(email, password);
@@ -45,11 +46,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         throw new Error('Aucun utilisateur retourné');
       }
 
-      console.log('✅ Connexion réussie, chargement du profil...');
+      logger.log('✅ Connexion réussie, chargement du profil...');
       const userData = await loadUserData(signInResult.user.id);
 
       if (userData) {
-        console.log('✅ Profil chargé:', userData.username);
+        logger.log('✅ Profil chargé:', userData.username);
         // ✅ email = celui tapé (source de vérité)
         setUser(applyAuthEmail(userData, email));
         setShowOnboarding(false);
@@ -63,7 +64,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const register = async (email: string, password: string, username: string) => {
-    console.log('🔐 Tentative inscription:', email, username);
+    logger.log('🔐 Tentative inscription:', email, username);
     try {
       const { db } = await import('../lib/database');
       const signUpResult = await db.sql.signUp(email, password, username);
@@ -77,12 +78,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         throw new Error('Aucun utilisateur retourné');
       }
 
-      console.log('✅ Inscription réussie, attente du profil...');
+      logger.log('✅ Inscription réussie, attente du profil...');
       await new Promise(resolve => setTimeout(resolve, 1500));
 
       const userData = await loadUserData(signUpResult.user.id);
       if (userData) {
-        console.log('✅ Profil créé:', userData.username);
+        logger.log('✅ Profil créé:', userData.username);
         // ✅ email = celui tapé (source de vérité)
         setUser(applyAuthEmail(userData, email));
         setShowOnboarding(true);
@@ -137,7 +138,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
         const { data: authListener } = supabase.auth.onAuthStateChange(
           async (event, session) => {
-            console.log('🔐 Auth event:', event, session?.user?.email);
+            logger.log('🔐 Auth event:', event, session?.user?.email);
 
             if (event === 'SIGNED_IN' && session?.user) {
               const userData = await loadUserData(session.user.id);

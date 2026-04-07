@@ -1,3 +1,4 @@
+import { logger } from '../lib/logger';
 import React, { useState, useEffect } from 'react';
 import { Star, Clock, User } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -36,14 +37,14 @@ const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = ({
       setLoading(true);
 
       if (!user) {
-        console.log('[FRIENDS_ACTIVITY] No user authenticated, skipping');
+        logger.log('[FRIENDS_ACTIVITY] No user authenticated, skipping');
         setActivities([]);
         return;
       }
 
-      console.log('[FRIENDS_ACTIVITY] Loading activities for user:', user.id);
+      logger.log('[FRIENDS_ACTIVITY] Loading activities for user:', user.id);
       const data = await getFriendsActivities(15);
-      console.log('[FRIENDS_ACTIVITY] Received activities:', data.length);
+      logger.log('[FRIENDS_ACTIVITY] Received activities:', data.length);
 
       if (data.length > 0) {
         const enrichedData = await enrichActivitiesWithGameData(data, language);

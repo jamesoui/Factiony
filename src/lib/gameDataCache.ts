@@ -1,3 +1,4 @@
+import { logger } from './logger';
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 const USE_BATCH_FETCH = true;
 
@@ -89,7 +90,7 @@ class GameDataCache {
       'Content-Type': 'application/json',
     };
 
-    console.log(`🚀 [CACHE] Batch fetch: ${gameIds.length} games`);
+    logger.log(`🚀 [CACHE] Batch fetch: ${gameIds.length} games`);
     const startTime = Date.now();
 
     const response = await fetch(`${url}?${params}`, { headers });
@@ -101,7 +102,7 @@ class GameDataCache {
     const result = await response.json();
     const elapsed = Date.now() - startTime;
 
-    console.log(`✅ [CACHE] Batch fetch completed in ${elapsed}ms (${(elapsed / gameIds.length).toFixed(1)}ms per game)`);
+    logger.log(`✅ [CACHE] Batch fetch completed in ${elapsed}ms (${(elapsed / gameIds.length).toFixed(1)}ms per game)`);
 
     return result.games || {};
   }
@@ -118,7 +119,7 @@ class GameDataCache {
       'Content-Type': 'application/json',
     };
 
-    console.log(`🚀 [CACHE] Single fetch: ${gameId}`);
+    logger.log(`🚀 [CACHE] Single fetch: ${gameId}`);
     const startTime = Date.now();
 
     const response = await fetch(`${url}?${params}`, { headers });
@@ -130,7 +131,7 @@ class GameDataCache {
     const result = await response.json();
     const elapsed = Date.now() - startTime;
 
-    console.log(`✅ [CACHE] Single fetch completed in ${elapsed}ms`);
+    logger.log(`✅ [CACHE] Single fetch completed in ${elapsed}ms`);
 
     return result.game || null;
   }
@@ -140,17 +141,17 @@ class GameDataCache {
 
     const cached = this.getCached(cacheKey);
     if (cached) {
-      console.log(`💾 [CACHE] HIT: ${gameId}`);
+      logger.log(`💾 [CACHE] HIT: ${gameId}`);
       return cached;
     }
 
     if (this.inflightSingle.has(cacheKey)) {
-      console.log(`⏳ [CACHE] Waiting for inflight single request: ${gameId}`);
+      logger.log(`⏳ [CACHE] Waiting for inflight single request: ${gameId}`);
       return this.inflightSingle.get(cacheKey)!;
     }
 
     if (this.inflightBatch && this.inflightBatch.gameIds.includes(gameId)) {
-      console.log(`⏳ [CACHE] Waiting for inflight batch request: ${gameId}`);
+      logger.log(`⏳ [CACHE] Waiting for inflight batch request: ${gameId}`);
       const result = await this.inflightBatch.promise;
       return result[gameId] || null;
     }
@@ -196,14 +197,14 @@ class GameDataCache {
     }
 
     if (toFetch.length === 0) {
-      console.log(`💾 [CACHE] All ${uniqueIds.length} games from cache`);
+      logger.log(`💾 [CACHE] All ${uniqueIds.length} games from cache`);
       return result;
     }
 
-    console.log(`💾 [CACHE] ${uniqueIds.length - toFetch.length}/${uniqueIds.length} from cache, fetching ${toFetch.length}`);
+    logger.log(`💾 [CACHE] ${uniqueIds.length - toFetch.length}/${uniqueIds.length} from cache, fetching ${toFetch.length}`);
 
     if (this.inflightBatch && this.inflightBatch.gameIds.some(id => toFetch.includes(id))) {
-      console.log(`⏳ [CACHE] Waiting for existing batch request`);
+      logger.log(`⏳ [CACHE] Waiting for existing batch request`);
       const batchResult = await this.inflightBatch.promise;
 
       for (const gameId of toFetch) {
@@ -262,7 +263,7 @@ class GameDataCache {
         }
       }
       keysToRemove.forEach(key => localStorage.removeItem(key));
-      console.log(`🗑️ Cleared ${keysToRemove.length} items from cache`);
+      logger.log(`🗑️ Cleared ${keysToRemove.length} items from cache`);
     } catch (err) {
       console.error('Error clearing localStorage:', err);
     }

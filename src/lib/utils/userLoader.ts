@@ -1,3 +1,4 @@
+import { logger } from '../logger';
 import { User } from '../../types';
 
 const mockUserDefaults = {
@@ -91,7 +92,7 @@ export async function loadUserData(userId: string): Promise<User | null> {
       preferences: mockUserDefaults.preferences
     };
 
-    console.log(`✅ Données utilisateur chargées pour ${user.username}`);
+    logger.log(`✅ Données utilisateur chargées pour ${user.username}`);
     return user;
   } catch (error) {
     console.error('❌ Erreur chargement données utilisateur:', error);
