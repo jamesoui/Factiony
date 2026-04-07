@@ -190,7 +190,8 @@ const GameDetailModal: React.FC<GameDetailModalProps> = ({
   const [tempRating, setTempRating] = useState(0);
   const [tempReview, setTempReview] = useState('');
   const [isSubmittingRating, setIsSubmittingRating] = useState(false);
-  const [selectedPlatform, setSelectedPlatform] = useState<string>('');
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
+  const [gameStatus, setGameStatus] = useState<string>('');
   const [factionyAvgRating, setFactionyAvgRating] = useState<number | null>(null);
   const [showAllTags, setShowAllTags] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
@@ -765,7 +766,8 @@ const GameDetailModal: React.FC<GameDetailModalProps> = ({
   .update({
     rating: tempRating,
     review_text: tempReview,
-    platform: selectedPlatform || null,
+    platform: selectedPlatforms.length > 0 ? selectedPlatforms.join(',') : null,
+    game_status: gameStatus || null,
     updated_at: new Date().toISOString(),
     rating_gameplay: detailedRatings.gameplay || null,
     rating_graphics: detailedRatings.graphics || null,
@@ -787,7 +789,8 @@ const GameDetailModal: React.FC<GameDetailModalProps> = ({
     game_slug: gameSlug,
     rating: tempRating,
     review_text: tempReview,
-    platform: selectedPlatform || null,
+    platform: selectedPlatforms.length > 0 ? selectedPlatforms.join(',') : null,
+    game_status: gameStatus || null,
     rating_gameplay: detailedRatings.gameplay || null,
     rating_graphics: detailedRatings.graphics || null,
     rating_story: detailedRatings.story || null,
@@ -824,7 +827,9 @@ const reviewVal =
 
 setTempRating(ratingVal);
 setTempReview(reviewVal);
-setSelectedPlatform((userRating as any)?.platform || "");
+const savedPlatform = (userRating as any)?.platform || "";
+setSelectedPlatforms(savedPlatform ? savedPlatform.split(',') : []);
+setGameStatus((userRating as any)?.game_status || "");
 setIsEditingRating(true);
   };
 
@@ -1290,6 +1295,14 @@ setTempReview(reviewVal);
                         {(userRating as any).platform && (
                           <div className="text-sm text-gray-300">🎮 Joué sur : <span className="text-white font-medium">{(userRating as any).platform}</span></div>
                         )}
+                        {(userRating as any).platform && (
+  <div className="text-sm text-gray-300">🎮 Joué sur : <span className="text-white font-medium">{(userRating as any).platform}</span></div>
+)}
+{(userRating as any)?.game_status && (
+  <div className="text-sm text-gray-300">
+    📋 Statut : <span className="text-white font-medium">{(userRating as any).game_status}</span>
+  </div>
+)}
                         {userRating.review_text && (
                           <div className="bg-gray-800 rounded-lg p-4">
                             <p className="text-sm text-gray-400 mb-1">Ma critique :</p>
@@ -1406,7 +1419,32 @@ setTempReview(reviewVal);
     ))}
   </div>
 )}
-
+<div>
+  <label className="block text-sm font-medium text-white mb-2">
+    Statut
+  </label>
+  <div className="flex flex-wrap gap-2">
+    {['En cours', 'Terminé', '100% terminé', 'Abandonné', 'Wishlist'].map(status => (
+      <button
+        key={status}
+        type="button"
+        onClick={() => setGameStatus(prev => prev === status ? '' : status)}
+        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
+          gameStatus === status
+            ? 'bg-orange-600 border-orange-500 text-white'
+            : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600'
+        }`}
+      >
+        {status === 'En cours' && '🎮 '}
+        {status === 'Terminé' && '✅ '}
+        {status === '100% terminé' && '🏆 '}
+        {status === 'Abandonné' && '❌ '}
+        {status === 'Wishlist' && '🔖 '}
+        {status}
+      </button>
+    ))}
+  </div>
+</div>
 {(() => {
   const platformsList = (fullGame?.platforms || game?.platforms || [])
     .map((p: any) => typeof p === 'string' ? p : p?.platform?.name)
@@ -1421,9 +1459,11 @@ setTempReview(reviewVal);
           <button
             key={platform}
             type="button"
-            onClick={() => setSelectedPlatform(prev => prev === platform ? '' : platform)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
-              selectedPlatform === platform
+            onClick={() => setSelectedPlatforms(prev =>
+  prev.includes(platform) ? prev.filter(p => p !== platform) : [...prev, platform]
+)}
+className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
+  selectedPlatforms.includes(platform)
                 ? 'bg-orange-600 border-orange-500 text-white'
                 : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600'
             }`}
