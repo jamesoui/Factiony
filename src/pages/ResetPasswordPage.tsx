@@ -12,12 +12,18 @@ const ResetPasswordPage: React.FC = () => {
   const [success, setSuccess] = useState(false)
 
   // Supabase injecte le token dans le hash de l'URL au format #access_token=...
-  useEffect(() => {
-    const hash = window.location.hash
-    if (!hash.includes('access_token')) {
-      setError('Lien invalide ou expiré. Demande un nouveau lien de réinitialisation.')
-    }
-  }, [])
+  const [ready, setReady] = useState(false)
+
+useEffect(() => {
+  import('../lib/supabaseClient').then(({ supabase }) => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (!data.session) {
+        setError('Lien invalide ou expiré. Demande un nouveau lien de réinitialisation.')
+      }
+      setReady(true)
+    })
+  })
+}, [])
 
   const validate = () => {
     if (password.length < 9) return 'Le mot de passe doit contenir au moins 9 caractères.'
