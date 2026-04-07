@@ -1,5 +1,6 @@
 import { logger } from '../logger';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { SupabaseClient } from '@supabase/supabase-js';
+import { supabase as centralClient } from '../supabaseClient';
 
 // Types pour les tables Supabase
 export interface User {
@@ -58,7 +59,7 @@ class SupabaseManager {
         return;
       }
 
-      this.client = createClient(supabaseUrl, supabaseKey);
+      this.client = centralClient;
       this.isConnected = true;
       logger.log('✅ Supabase client initialisé avec succès');
       logger.log(`📍 URL: ${supabaseUrl.substring(0, 30)}...`);

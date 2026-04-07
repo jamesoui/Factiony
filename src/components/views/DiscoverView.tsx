@@ -1,3 +1,4 @@
+import { logger } from '../../lib/logger';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader } from 'lucide-react';
@@ -167,9 +168,9 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
           }
 
           // 5. Fallback : si aucun jeu noté, utiliser les jeux populaires de RAWG
-          console.log("Chargement des jeux populaires par défaut...");
+          logger.log("Chargement des jeux populaires par défaut...");
           const popularGames = await searchPopularGames(10);
-          console.log("Jeux populaires chargés:", popularGames.length);
+          logger.log("Jeux populaires chargés:", popularGames.length);
 
           if (popularGames.length > 0) {
             const trendingMapped = popularGames.map((game: any) => ({
@@ -202,12 +203,12 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
         const topRatedGamesData = await getTopRatedGamesWithCompositeScore(20);
 
         if (!topRatedGamesData || topRatedGamesData.length === 0) {
-          console.log('No top rated games from composite score view, setting empty array');
+          logger.log('No top rated games from composite score view, setting empty array');
           setTopRatedGames([]);
         } else {
-          console.log('Top rated games (composite score):', topRatedGamesData.length, 'games');
-          console.log('First game composite_score:', topRatedGamesData[0]?.composite_score);
-          console.log('Last game composite_score:', topRatedGamesData[topRatedGamesData.length - 1]?.composite_score);
+          logger.log('Top rated games (composite score):', topRatedGamesData.length, 'games');
+          logger.log('First game composite_score:', topRatedGamesData[0]?.composite_score);
+          logger.log('Last game composite_score:', topRatedGamesData[topRatedGamesData.length - 1]?.composite_score);
 
           const topRatedMapped = topRatedGamesData.map((game: any) => ({
             id: game.id.toString(),
@@ -229,7 +230,7 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
         }
 
         const mostFollowedGames = await getMostFollowedUnreleasedGames(15);
-        console.log('Most followed unreleased games:', mostFollowedGames);
+        logger.log('Most followed unreleased games:', mostFollowedGames);
 
         if (mostFollowedGames.length > 0) {
           const gameIds = mostFollowedGames.map(g => g.game_id);
@@ -305,11 +306,11 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
   };
 
   const handleRate = (rating: number) => {
-    console.log('Rating:', rating);
+    logger.log('Rating:', rating);
   };
 
   const handleReview = (review: string, rating: number) => {
-    console.log('Review:', review, 'Rating:', rating);
+    logger.log('Review:', review, 'Rating:', rating);
   };
 
   return (
