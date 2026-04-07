@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { BookOpen, Calendar, Clock, Star, Filter, BarChart3, TrendingUp, Monitor } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { BookOpen, Calendar, Clock, Star, Filter, BarChart3, TrendingUp, Monitor, ChevronDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { gameToSlug } from '../../utils/slugify';
 import { UserGame, Game } from '../../types';
@@ -18,33 +18,24 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [platformFilter, setPlatformFilter] = useState<string>('all');
+  const [yearFilter, setYearFilter] = useState<string>('all');
+  const [genreFilter, setGenreFilter] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'date_desc' | 'date_asc' | 'rating_desc' | 'rating_asc'>('date_desc');
   const [showStats, setShowStats] = useState(false);
   const [ratedGames, setRatedGames] = useState<UserGameRating[]>([]);
   const [userStats, setUserStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (user) {
-      loadUserGames();
-    }
+    if (user) loadUserGames();
   }, [user]);
 
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!document.hidden && user) {
-        loadUserGames();
-      }
-    };
-
-    const handleReviewSaved = () => {
-      if (user) {
-        loadUserGames();
-      }
-    };
-
+    const handleVisibilityChange = () => { if (!document.hidden && user) loadUserGames(); };
+    const handleReviewSaved = () => { if (user) loadUserGames(); };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('reviewSaved', handleReviewSaved);
-
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('reviewSaved', handleReviewSaved);
@@ -53,14 +44,12 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
 
   const loadUserGames = async () => {
     if (!user) return;
-
     setLoading(true);
     try {
       const [games, stats] = await Promise.all([
         getUserRatedGames(user.id),
         getUserStats(user.id)
       ]);
-
       setRatedGames(games);
       setUserStats(stats);
     } catch (error) {
@@ -70,9 +59,7 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
     }
   };
 
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('fr-FR');
-  };
+  const formatDate = (date: string) => new Date(date).toLocaleDateString('fr-FR');
 
   const getRatingCategory = (rating: number): string => {
     if (rating >= 4.5) return 'Excellent';
@@ -91,10 +78,69 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
     'Wishlist': '🔖 Wishlist',
   };
 
-  const filteredGames = ratedGames.filter(game => {
-    if (statusFilter === 'all') return true;
-    return (game as any).game_status === statusFilter;
-  });
+  const sortLabels: Record<string, string> = {
+    date_desc: '📅 Plus récent',
+    date_asc: '📅 Plus ancien',
+    rating_desc: '⭐ Mieux noté',
+    rating_asc: '⭐ Moins bien noté',
+  };
+
+  const filterOptions = useMemo(() => {
+    const platforms = new Set<string>();
+    const years = new Set<string>();
+    const genres = new Set<string>();
+    ratedGames.forEach(g => {
+      if ((g as any).platform) {
+        (g as any).platform.split(',').forEach((p: string) => {
+          const trimmed = p.trim();
+          if (trimmed) platforms.add(trimmed);
+        });
+      }
+      if (g.game_data?.released) {
+        const y = new Date(g.game_data.released).getFullYear();
+        if (!isNaN(y)) years.add(String(y));
+      }
+      if (g.game_data?.genres) {
+        g.game_data.genres.forEach((genre: any) => {
+          const name = typeof genre === 'string' ? genre : genre?.name;
+          if (name) genres.add(name);
+        });
+      }
+    });
+    return {
+      platforms: [...platforms].sort(),
+      years: [...years].sort((a, b) => Number(b) - Number(a)),
+      genres: [...genres].sort(),
+    };
+  }, [ratedGames]);
+
+  const filteredGames = useMemo(() => {
+    return ratedGames
+      .filter(game => {
+        if (statusFilter !== 'all' && (game as any).game_status !== statusFilter) return false;
+        if (platformFilter !== 'all') {
+          const platforms = ((game as any).platform || '').split(',').map((p: string) => p.trim());
+          if (!platforms.includes(platformFilter)) return false;
+        }
+        if (yearFilter !== 'all') {
+          const y = game.game_data?.released ? String(new Date(game.game_data.released).getFullYear()) : '';
+          if (y !== yearFilter) return false;
+        }
+        if (genreFilter !== 'all') {
+          const genres = (game.game_data?.genres || []).map((genre: any) =>
+            typeof genre === 'string' ? genre : genre?.name
+          );
+          if (!genres.includes(genreFilter)) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'rating_desc') return b.rating - a.rating;
+        if (sortBy === 'rating_asc') return a.rating - b.rating;
+        if (sortBy === 'date_asc') return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+  }, [ratedGames, statusFilter, platformFilter, yearFilter, genreFilter, sortBy]);
 
   const getStatusCount = (status: string) => {
     if (status === 'all') return ratedGames.length;
@@ -106,12 +152,20 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
     return ratedGames.filter(game => getRatingCategory(game.rating).toLowerCase() === category.toLowerCase()).length;
   };
 
+  const hasActiveFilters = statusFilter !== 'all' || platformFilter !== 'all' || yearFilter !== 'all' || genreFilter !== 'all' || sortBy !== 'date_desc';
+
+  const resetFilters = () => {
+    setStatusFilter('all');
+    setPlatformFilter('all');
+    setYearFilter('all');
+    setGenreFilter('all');
+    setSortBy('date_desc');
+  };
+
   if (!user) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-400">Connectez-vous pour voir votre journal</p>
-        </div>
+        <p className="text-gray-400">Connectez-vous pour voir votre journal</p>
       </div>
     );
   }
@@ -119,15 +173,14 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-400">Chargement de votre journal...</p>
-        </div>
+        <p className="text-gray-400">Chargement de votre journal...</p>
       </div>
     );
   }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 bg-gray-900 min-h-screen">
+
       {/* Stats Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {[
@@ -148,38 +201,100 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
         ))}
       </div>
 
-      {/* Filter by status */}
-      <div className="bg-gray-800 rounded-lg shadow-sm border border-gray-700 p-6 mb-8">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center space-x-4">
-            <Filter className="h-5 w-5 text-gray-400" />
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(statusLabels).map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setStatusFilter(key)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    statusFilter === key
-                      ? 'bg-orange-900 text-orange-300'
-                      : 'text-gray-400 hover:bg-gray-700'
-                  }`}
-                >
-                  {label}
-                  {key !== 'all' && (
-                    <span className="ml-1 text-xs text-gray-500">({getStatusCount(key)})</span>
-                  )}
-                </button>
-              ))}
+      {/* Filtres */}
+      <div className="bg-gray-800 rounded-lg shadow-sm border border-gray-700 p-5 mb-8">
+        {/* Ligne 1 : statut */}
+        <div className="flex items-center gap-3 flex-wrap mb-4">
+          <Filter className="h-4 w-4 text-gray-400 flex-shrink-0" />
+          {Object.entries(statusLabels).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setStatusFilter(key)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                statusFilter === key ? 'bg-orange-900 text-orange-300' : 'text-gray-400 hover:bg-gray-700'
+              }`}
+            >
+              {label}
+              {key !== 'all' && <span className="ml-1 text-xs text-gray-500">({getStatusCount(key)})</span>}
+            </button>
+          ))}
+        </div>
+
+        {/* Ligne 2 : selects + tri */}
+        <div className="flex flex-wrap items-center gap-3">
+          {filterOptions.platforms.length > 0 && (
+            <div className="relative">
+              <select
+                value={platformFilter}
+                onChange={e => setPlatformFilter(e.target.value)}
+                className={`appearance-none pl-3 pr-8 py-2 rounded-lg text-sm border bg-gray-700 text-gray-300 border-gray-600 hover:border-gray-500 focus:outline-none focus:border-orange-500 ${platformFilter !== 'all' ? 'border-orange-500 text-orange-300' : ''}`}
+              >
+                <option value="all">🎮 Toutes plateformes</option>
+                {filterOptions.platforms.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
             </div>
+          )}
+
+          {filterOptions.years.length > 0 && (
+            <div className="relative">
+              <select
+                value={yearFilter}
+                onChange={e => setYearFilter(e.target.value)}
+                className={`appearance-none pl-3 pr-8 py-2 rounded-lg text-sm border bg-gray-700 text-gray-300 border-gray-600 hover:border-gray-500 focus:outline-none focus:border-orange-500 ${yearFilter !== 'all' ? 'border-orange-500 text-orange-300' : ''}`}
+              >
+                <option value="all">📅 Toutes années</option>
+                {filterOptions.years.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+            </div>
+          )}
+
+          {filterOptions.genres.length > 0 && (
+            <div className="relative">
+              <select
+                value={genreFilter}
+                onChange={e => setGenreFilter(e.target.value)}
+                className={`appearance-none pl-3 pr-8 py-2 rounded-lg text-sm border bg-gray-700 text-gray-300 border-gray-600 hover:border-gray-500 focus:outline-none focus:border-orange-500 ${genreFilter !== 'all' ? 'border-orange-500 text-orange-300' : ''}`}
+              >
+                <option value="all">🏷️ Tous genres</option>
+                {filterOptions.genres.map(g => <option key={g} value={g}>{g}</option>)}
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+            </div>
+          )}
+
+          <div className="relative">
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value as any)}
+              className="appearance-none pl-3 pr-8 py-2 rounded-lg text-sm border bg-gray-700 text-gray-300 border-gray-600 hover:border-gray-500 focus:outline-none focus:border-orange-500"
+            >
+              {Object.entries(sortLabels).map(([key, label]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
           </div>
+
+          {hasActiveFilters && (
+            <button
+              onClick={resetFilters}
+              className="px-3 py-2 rounded-lg text-sm text-red-400 hover:bg-gray-700 transition-colors border border-red-800"
+            >
+              ✕ Réinitialiser
+            </button>
+          )}
+
+          <span className="text-sm text-gray-500 ml-auto">
+            {filteredGames.length} jeu{filteredGames.length !== 1 ? 'x' : ''}
+          </span>
 
           {ratedGames.length > 0 && (
             <button
               onClick={() => setShowStats(!showStats)}
               className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-colors ${
-                showStats
-                  ? 'bg-orange-900 text-orange-300'
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                showStats ? 'bg-orange-900 text-orange-300' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
               }`}
             >
               <BarChart3 className="h-4 w-4" />
@@ -192,66 +307,34 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
       {/* Advanced Statistics */}
       {showStats && userStats && (
         <div className="space-y-6 mb-8">
-          {/* Ligne 1 : Année + Genre (existant) */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {Object.keys(userStats.yearlyStats).length > 0 && (
-              <StatsChart
-                title="Jeux par Année de Sortie"
-                data={userStats.yearlyStats}
-                type="line"
-                color="blue"
-              />
+              <StatsChart title="Jeux par Année de Sortie" data={userStats.yearlyStats} type="line" color="blue" />
             )}
             {Object.keys(userStats.genreBreakdown).length > 0 && (
-              <StatsChart
-                title="Répartition par Genre"
-                data={userStats.genreBreakdown}
-                type="pie"
-                color="green"
-              />
+              <StatsChart title="Répartition par Genre" data={userStats.genreBreakdown} type="pie" color="green" />
             )}
           </div>
 
-          {/* Ligne 2 : Plateformes + Résumé (existant) */}
           {Object.keys(userStats.platformBreakdown).length > 0 && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <StatsChart
-                title="Plateformes Utilisées"
-                data={userStats.platformBreakdown}
-                type="bar"
-                color="orange"
-              />
-
+              <StatsChart title="Plateformes Utilisées" data={userStats.platformBreakdown} type="bar" color="orange" />
               <div className="bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-700">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-white">Résumé</h3>
                   <TrendingUp className="h-5 w-5 text-gray-400" />
                 </div>
                 <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">Total des jeux</span>
-                    <span className="text-white font-medium">{ratedGames.length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">Genres différents</span>
-                    <span className="text-white font-medium">{Object.keys(userStats.genreBreakdown).length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">Plateformes utilisées</span>
-                    <span className="text-white font-medium">{Object.keys(userStats.platformBreakdown).length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">Note moyenne</span>
-                    <span className="text-white font-medium">{userStats.averageRating}</span>
-                  </div>
+                  <div className="flex justify-between"><span className="text-gray-300">Total des jeux</span><span className="text-white font-medium">{ratedGames.length}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-300">Genres différents</span><span className="text-white font-medium">{Object.keys(userStats.genreBreakdown).length}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-300">Plateformes utilisées</span><span className="text-white font-medium">{Object.keys(userStats.platformBreakdown).length}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-300">Note moyenne</span><span className="text-white font-medium">{userStats.averageRating}</span></div>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Ligne 3 : Distribution des notes + Répartition par statut (nouveau) */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Distribution des notes */}
             <div className="bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-700">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-white">Distribution des notes</h3>
@@ -266,10 +349,7 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
                     <div key={bucket} className="flex items-center gap-3">
                       <span className="text-xs text-gray-400 w-8 text-right">{bucket}★</span>
                       <div className="flex-1 bg-gray-700 rounded-full h-3">
-                        <div
-                          className="bg-orange-500 h-3 rounded-full transition-all"
-                          style={{ width: `${(count / max) * 100}%` }}
-                        />
+                        <div className="bg-orange-500 h-3 rounded-full transition-all" style={{ width: `${(count / max) * 100}%` }} />
                       </div>
                       <span className="text-xs text-gray-400 w-4">{count}</span>
                     </div>
@@ -278,7 +358,6 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
               </div>
             </div>
 
-            {/* Répartition par statut */}
             <div className="bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-700">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-white">Répartition par statut</h3>
@@ -295,10 +374,7 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
                         <span className="text-sm text-white font-medium">{count} <span className="text-gray-500 text-xs">({pct}%)</span></span>
                       </div>
                       <div className="w-full bg-gray-700 rounded-full h-2">
-                        <div
-                          className="bg-orange-500 h-2 rounded-full transition-all"
-                          style={{ width: `${pct}%` }}
-                        />
+                        <div className="bg-orange-500 h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />
                       </div>
                     </div>
                   );
@@ -313,18 +389,12 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
       <div className="space-y-6">
         {filteredGames.map((ratedGame) => {
           if (!ratedGame.game_data) return null;
-
           return (
             <div key={ratedGame.id} className="bg-gray-800 rounded-xl shadow-sm border border-gray-700 overflow-hidden hover:shadow-md transition-shadow">
               <div className="flex flex-col lg:flex-row">
                 <div className="lg:w-48 h-48 lg:h-auto flex-shrink-0 overflow-hidden">
-                  <img
-                    src={ratedGame.game_data.background_image || ''}
-                    alt={ratedGame.game_data.name}
-                    className="w-full h-full object-cover object-center"
-                  />
+                  <img src={ratedGame.game_data.background_image || ''} alt={ratedGame.game_data.name} className="w-full h-full object-cover object-center" />
                 </div>
-
                 <div className="flex-1 p-6">
                   <div className="flex items-start justify-between mb-4">
                     <div>
@@ -355,7 +425,11 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
                     </div>
                     <div>
                       <p className="text-sm text-gray-500">Plateforme</p>
-                      <p className="font-medium text-gray-300">{(ratedGame as any).platform?.split(',').join(', ') || '—'}</p>
+                      <p className="font-medium text-gray-300">
+                        {(ratedGame as any).platform
+                          ? [...new Set((ratedGame as any).platform.split(',').map((p: string) => p.trim()))].join(', ')
+                          : '—'}
+                      </p>
                     </div>
                     {ratedGame.game_data.genres?.length > 0 && (
                       <div>
@@ -401,8 +475,10 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
       {filteredGames.length === 0 && ratedGames.length > 0 && (
         <div className="text-center py-12">
           <BookOpen className="h-16 w-16 text-gray-600 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-white mb-2">Aucun jeu dans cette catégorie</h3>
-          <p className="text-gray-500">Essayez un autre filtre</p>
+          <h3 className="text-lg font-medium text-white mb-2">Aucun jeu avec ces filtres</h3>
+          <button onClick={resetFilters} className="text-orange-400 hover:text-orange-300 text-sm transition-colors">
+            Réinitialiser les filtres
+          </button>
         </div>
       )}
 
