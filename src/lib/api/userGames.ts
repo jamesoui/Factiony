@@ -8,6 +8,8 @@ export interface UserGameRating {
   game_slug: string;
   rating: number;
   review_text?: string;
+  platform?: string;
+  game_status?: string;
   created_at: string;
   updated_at: string;
   game_data?: any;
@@ -19,6 +21,8 @@ export interface UserStats {
   genreBreakdown: Record<string, number>;
   platformBreakdown: Record<string, number>;
   yearlyStats: Record<string, number>;
+  statusBreakdown: Record<string, number>;
+  ratingDistribution: Record<string, number>;
 }
 
 export async function getUserRatedGames(userId: string): Promise<UserGameRating[]> {
@@ -82,28 +86,41 @@ export async function getUserStats(userId: string): Promise<UserStats> {
   const genreBreakdown: Record<string, number> = {};
   const platformBreakdown: Record<string, number> = {};
   const yearlyStats: Record<string, number> = {};
+  const statusBreakdown: Record<string, number> = {};
+  const ratingDistribution: Record<string, number> = {};
 
   ratedGames.forEach((game) => {
-    if (game.game_data) {
-      if (game.game_data.genres && Array.isArray(game.game_data.genres)) {
-        game.game_data.genres.forEach((genre: any) => {
-          const name = typeof genre === "string" ? genre : genre?.name;
-          if (name) genreBreakdown[name] = (genreBreakdown[name] || 0) + 1;
-        });
-      }
-
-      if ((game as any).platform) {
-        const p = (game as any).platform;
-        platformBreakdown[p] = (platformBreakdown[p] || 0) + 1;
-      }
-
-      if (game.game_data.released) {
-        const year = new Date(game.game_data.released).getFullYear();
-        if (!isNaN(year)) {
-          yearlyStats[year] = (yearlyStats[year] || 0) + 1;
-        }
-      }
+    // Genres
+    if (game.game_data?.genres && Array.isArray(game.game_data.genres)) {
+      game.game_data.genres.forEach((genre: any) => {
+        const name = typeof genre === 'string' ? genre : genre?.name;
+        if (name) genreBreakdown[name] = (genreBreakdown[name] || 0) + 1;
+      });
     }
+
+    // Plateformes (multi, séparées par virgule)
+    if ((game as any).platform) {
+      const platforms = (game as any).platform.split(',').map((p: string) => p.trim()).filter(Boolean);
+      platforms.forEach((p: string) => {
+        platformBreakdown[p] = (platformBreakdown[p] || 0) + 1;
+      });
+    }
+
+    // Année de sortie
+    if (game.game_data?.released) {
+      const year = new Date(game.game_data.released).getFullYear();
+      if (!isNaN(year)) yearlyStats[year] = (yearlyStats[year] || 0) + 1;
+    }
+
+    // Statut
+    if ((game as any).game_status) {
+      const s = (game as any).game_status;
+      statusBreakdown[s] = (statusBreakdown[s] || 0) + 1;
+    }
+
+    // Distribution des notes (par tranche de 0.5)
+    const bucket = (Math.round(game.rating * 2) / 2).toFixed(1);
+    ratingDistribution[bucket] = (ratingDistribution[bucket] || 0) + 1;
   });
 
   return {
@@ -111,9 +128,10 @@ export async function getUserStats(userId: string): Promise<UserStats> {
     averageRating: parseFloat(averageRating.toFixed(2)),
     genreBreakdown,
     platformBreakdown,
-    yearlyStats
+    yearlyStats,
+    statusBreakdown,
+    ratingDistribution
   };
-}
 
 export async function getUserRatingForGame(userId: string, gameId: string): Promise<UserGameRating | null> {
   try {

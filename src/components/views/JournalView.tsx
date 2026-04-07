@@ -82,19 +82,23 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
     return 'Décevant';
   };
 
-  const filteredGames = ratedGames.filter(game => {
-    if (statusFilter === 'all') return true;
-    const category = getRatingCategory(game.rating);
-    return category.toLowerCase() === statusFilter.toLowerCase();
-  });
-
   const statusLabels: Record<string, string> = {
     all: 'Tous',
-    excellent: 'Excellent (4.5+)',
-    'très bon': 'Très bon (4+)',
-    bon: 'Bon (3+)',
-    moyen: 'Moyen (2+)',
-    décevant: 'Décevant (<2)'
+    'En cours': '🎮 En cours',
+    'Terminé': '✅ Terminé',
+    '100% terminé': '🏆 100% terminé',
+    'Abandonné': '❌ Abandonné',
+    'Wishlist': '🔖 Wishlist',
+  };
+
+  const filteredGames = ratedGames.filter(game => {
+    if (statusFilter === 'all') return true;
+    return (game as any).game_status === statusFilter;
+  });
+
+  const getStatusCount = (status: string) => {
+    if (status === 'all') return ratedGames.length;
+    return ratedGames.filter(g => (g as any).game_status === status).length;
   };
 
   const getCategoryCount = (category: string) => {
@@ -144,7 +148,7 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
         ))}
       </div>
 
-      {/* Filter */}
+      {/* Filter by status */}
       <div className="bg-gray-800 rounded-lg shadow-sm border border-gray-700 p-6 mb-8">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-4">
@@ -161,6 +165,9 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
                   }`}
                 >
                   {label}
+                  {key !== 'all' && (
+                    <span className="ml-1 text-xs text-gray-500">({getStatusCount(key)})</span>
+                  )}
                 </button>
               ))}
             </div>
@@ -185,6 +192,7 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
       {/* Advanced Statistics */}
       {showStats && userStats && (
         <div className="space-y-6 mb-8">
+          {/* Ligne 1 : Année + Genre (existant) */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {Object.keys(userStats.yearlyStats).length > 0 && (
               <StatsChart
@@ -204,6 +212,7 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
             )}
           </div>
 
+          {/* Ligne 2 : Plateformes + Résumé (existant) */}
           {Object.keys(userStats.platformBreakdown).length > 0 && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <StatsChart
@@ -218,7 +227,6 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
                   <h3 className="text-lg font-semibold text-white">Résumé</h3>
                   <TrendingUp className="h-5 w-5 text-gray-400" />
                 </div>
-
                 <div className="space-y-3">
                   <div className="flex justify-between">
                     <span className="text-gray-300">Total des jeux</span>
@@ -240,6 +248,64 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
               </div>
             </div>
           )}
+
+          {/* Ligne 3 : Distribution des notes + Répartition par statut (nouveau) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Distribution des notes */}
+            <div className="bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-700">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white">Distribution des notes</h3>
+                <BarChart3 className="h-5 w-5 text-gray-400" />
+              </div>
+              <div className="space-y-2">
+                {['0.5','1.0','1.5','2.0','2.5','3.0','3.5','4.0','4.5','5.0'].map(bucket => {
+                  const dist = userStats.ratingDistribution || {};
+                  const count = dist[bucket] || 0;
+                  const max = Math.max(...Object.values(dist as Record<string, number>).map(Number), 1);
+                  return (
+                    <div key={bucket} className="flex items-center gap-3">
+                      <span className="text-xs text-gray-400 w-8 text-right">{bucket}★</span>
+                      <div className="flex-1 bg-gray-700 rounded-full h-3">
+                        <div
+                          className="bg-orange-500 h-3 rounded-full transition-all"
+                          style={{ width: `${(count / max) * 100}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-gray-400 w-4">{count}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Répartition par statut */}
+            <div className="bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-700">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white">Répartition par statut</h3>
+                <BookOpen className="h-5 w-5 text-gray-400" />
+              </div>
+              <div className="space-y-3">
+                {Object.entries(statusLabels).filter(([k]) => k !== 'all').map(([key, label]) => {
+                  const count = getStatusCount(key);
+                  const pct = ratedGames.length > 0 ? Math.round((count / ratedGames.length) * 100) : 0;
+                  return (
+                    <div key={key}>
+                      <div className="flex justify-between mb-1">
+                        <span className="text-sm text-gray-300">{label}</span>
+                        <span className="text-sm text-white font-medium">{count} <span className="text-gray-500 text-xs">({pct}%)</span></span>
+                      </div>
+                      <div className="w-full bg-gray-700 rounded-full h-2">
+                        <div
+                          className="bg-orange-500 h-2 rounded-full transition-all"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -262,7 +328,12 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
                 <div className="flex-1 p-6">
                   <div className="flex items-start justify-between mb-4">
                     <div>
-                      <h3 className="text-xl font-bold text-white mb-2 cursor-pointer hover:text-orange-400 transition-colors" onClick={() => navigate(`/game/${gameToSlug(Number(ratedGame.game_id), ratedGame.game_data.name)}`)}>{ratedGame.game_data.name}</h3>
+                      <h3
+                        className="text-xl font-bold text-white mb-2 cursor-pointer hover:text-orange-400 transition-colors"
+                        onClick={() => navigate(`/game/${gameToSlug(Number(ratedGame.game_id), ratedGame.game_data.name)}`)}
+                      >
+                        {ratedGame.game_data.name}
+                      </h3>
                       <p className="text-gray-400">
                         {ratedGame.game_data.developers?.[0]?.name || 'Développeur inconnu'} • {ratedGame.game_data.released ? new Date(ratedGame.game_data.released).getFullYear() : 'N/A'}
                       </p>
@@ -273,14 +344,18 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
                     <div>
                       <p className="text-sm text-gray-500">Noté le</p>
                       <p className="font-medium text-gray-300">{formatDate(ratedGame.created_at)}</p>
                     </div>
                     <div>
-                      <p className="text-sm text-gray-500">Catégorie</p>
-                      <p className="font-medium text-gray-300">{getRatingCategory(ratedGame.rating)}</p>
+                      <p className="text-sm text-gray-500">Statut</p>
+                      <p className="font-medium text-gray-300">{(ratedGame as any).game_status || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">Plateforme</p>
+                      <p className="font-medium text-gray-300">{(ratedGame as any).platform?.split(',').join(', ') || '—'}</p>
                     </div>
                     {ratedGame.game_data.genres?.length > 0 && (
                       <div>
@@ -291,31 +366,31 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
                   </div>
 
                   {ratedGame.review_text && (
-  <div className="bg-gray-700 rounded-lg p-4">
-    <p className="text-sm text-gray-500 mb-2">Ma critique</p>
-    <p className="text-gray-300 leading-relaxed">{ratedGame.review_text}</p>
-  </div>
-)}
-{(ratedGame.rating_gameplay || ratedGame.rating_graphics || ratedGame.rating_story || ratedGame.rating_music) && (
-  <div className="bg-gray-700 rounded-lg p-4 mt-3 space-y-2">
-    <p className="text-sm text-gray-500 mb-2">Notes détaillées</p>
-    {[
-      { key: 'rating_gameplay', label: '🎮 Gameplay' },
-      { key: 'rating_graphics', label: '🎨 Graphismes' },
-      { key: 'rating_story', label: '📖 Histoire' },
-      { key: 'rating_music', label: '🎵 Musique' },
-    ].map(({ key, label }) => ratedGame[key] ? (
-      <div key={key} className="flex items-center justify-between">
-        <span className="text-sm text-gray-300">{label}</span>
-        <div className="flex items-center space-x-1">
-          {Array.from({ length: 5 }, (_, i) => (
-            <Star key={i} className={`h-4 w-4 ${i < ratedGame[key] ? 'fill-yellow-400 text-yellow-400' : 'text-gray-600'}`} />
-          ))}
-        </div>
-      </div>
-    ) : null)}
-  </div>
-)}
+                    <div className="bg-gray-700 rounded-lg p-4">
+                      <p className="text-sm text-gray-500 mb-2">Ma critique</p>
+                      <p className="text-gray-300 leading-relaxed">{ratedGame.review_text}</p>
+                    </div>
+                  )}
+                  {(ratedGame.rating_gameplay || ratedGame.rating_graphics || ratedGame.rating_story || ratedGame.rating_music) && (
+                    <div className="bg-gray-700 rounded-lg p-4 mt-3 space-y-2">
+                      <p className="text-sm text-gray-500 mb-2">Notes détaillées</p>
+                      {[
+                        { key: 'rating_gameplay', label: '🎮 Gameplay' },
+                        { key: 'rating_graphics', label: '🎨 Graphismes' },
+                        { key: 'rating_story', label: '📖 Histoire' },
+                        { key: 'rating_music', label: '🎵 Musique' },
+                      ].map(({ key, label }) => ratedGame[key] ? (
+                        <div key={key} className="flex items-center justify-between">
+                          <span className="text-sm text-gray-300">{label}</span>
+                          <div className="flex items-center space-x-1">
+                            {Array.from({ length: 5 }, (_, i) => (
+                              <Star key={i} className={`h-4 w-4 ${i < ratedGame[key] ? 'fill-yellow-400 text-yellow-400' : 'text-gray-600'}`} />
+                            ))}
+                          </div>
+                        </div>
+                      ) : null)}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
