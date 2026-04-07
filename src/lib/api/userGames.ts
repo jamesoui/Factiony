@@ -132,6 +132,7 @@ export async function getUserStats(userId: string): Promise<UserStats> {
     statusBreakdown,
     ratingDistribution
   };
+  }
 
 export async function getUserRatingForGame(userId: string, gameId: string): Promise<UserGameRating | null> {
   try {
