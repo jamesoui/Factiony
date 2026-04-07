@@ -7,27 +7,27 @@ const HeroSection: React.FC = () => {
   const navigate = useNavigate()
 
   const features = [
-    {
-      emoji: '⭐',
-      title: 'Note tes jeux',
-      desc: 'Attribue une note sur 5 à chaque jeu terminé et construis ton historique gaming.',
-    },
-    {
-      emoji: '📖',
-      title: 'Tiens ton journal',
-      desc: 'Enregistre tes sessions, écris des reviews et suis ta progression jeu par jeu.',
-    },
-    {
-      emoji: '👥',
-      title: 'Suis tes amis',
-      desc: 'Vois ce que joue ta communauté et découvre de nouveaux jeux via leur fil d\'activité.',
-    },
-    {
-      emoji: '🤖',
-      title: 'Albus, ton assistant IA',
-      desc: 'Pose tes questions gaming, obtiens des recommandations personnalisées basées sur tes goûts.',
-    },
-  ]
+  {
+    emoji: '⭐',
+    title: 'Note tes jeux',
+    desc: 'Attribue une note sur 5, écris une review et construis ton historique gaming au fil du temps.',
+  },
+  {
+    emoji: '📖',
+    title: 'Journal & backlog',
+    desc: 'Suis tes jeux en cours, terminés et ta wishlist. Ton backlog enfin sous contrôle.',
+  },
+  {
+    emoji: '👥',
+    title: 'Suis des gamers',
+    desc: 'Abonne-toi à tes amis et à des joueurs du monde entier et découvre leurs coups de cœur en temps réel.',
+  },
+  {
+    emoji: '🧙',
+    title: 'Albus, l\'IA gaming',
+    desc: 'L\'assistant IA de référence pour le jeu vidéo. Recommandations, strats, builds — il connaît tout.',
+  },
+]
 
   return (
     <div className="relative overflow-hidden rounded-2xl mb-4" style={{ background: 'linear-gradient(135deg, #0d1117 0%, #1a1f2e 50%, #0d1117 100%)' }}>
@@ -49,7 +49,7 @@ const HeroSection: React.FC = () => {
 
         {/* Subline */}
         <p className="text-gray-400 text-lg max-w-xl mx-auto mb-8">
-          Factiony, c'est le Letterboxd du jeu vidéo. Suis tes parties, partage tes avis et explore les goûts de ta communauté.
+          Note tes jeux, échange sur les forums, explore avec l'IA et connecte-toi avec des gamers du monde entier.
         </p>
 
         {/* CTAs */}
