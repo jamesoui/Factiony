@@ -16,6 +16,7 @@ import { gameDataCache } from '../../lib/gameDataCache';
 import { supabase } from '../../lib/supabaseClient';
 import { gameToSlug } from '../../utils/slugify';
 import AdBanner from "../ads/AdBanner";
+import HeroSection from './HeroSection';
 
 interface DiscoverViewProps {
   onViewChange?: (view: string, userId?: string) => void;
@@ -315,6 +316,7 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 bg-gray-900 min-h-screen space-y-10">
+       {!user && <HeroSection />}
       {trendingLoading ? (
         <div className="flex items-center justify-center py-12">
           <Loader className="h-12 w-12 text-orange-500 animate-spin" />
