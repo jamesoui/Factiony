@@ -15,7 +15,7 @@ interface PasswordValidation {
 
 const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
   const { login, register } = useAuth()
-  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [username, setUsername] = useState('')
@@ -178,7 +178,27 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
     setShowPassword(false)
     submitInProgressRef.current = false
   }
-
+const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!email) {
+      setError('Saisis ton adresse email.')
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      const { supabase } = await import('../lib/supabaseClient')
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      })
+      if (error) throw error
+      setSuccess('Email envoyé ! Vérifie ta boîte mail pour réinitialiser ton mot de passe.')
+    } catch (err: any) {
+      setError(err.message || 'Une erreur est survenue.')
+    } finally {
+      setLoading(false)
+    }
+  }
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-75 backdrop-blur-sm">
       <div className="bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md border border-gray-700 relative">
@@ -191,7 +211,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
 
         <div className="p-8">
           <h2 className="text-3xl font-bold text-white text-center mb-2">
-            {mode === 'login' ? 'Connexion' : 'Créer un compte'}
+            {mode === 'login' ? 'Connexion' : mode === 'register' ? 'Créer un compte' : 'Mot de passe oublié'}
           </h2>
           <p className="text-gray-400 text-center mb-6">
             {mode === 'login'
@@ -236,6 +256,45 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
             </div>
           )}
 
+          {mode === 'forgot' ? (
+            <form onSubmit={handleForgotPassword} className="space-y-4">
+              <p className="text-gray-400 text-sm text-center">
+                Saisis ton email et on t'envoie un lien pour réinitialiser ton mot de passe.
+              </p>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Email <span className="text-red-400">*</span>
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="votre@email.com"
+                    className="w-full pl-10 pr-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-700 hover:to-red-700 text-white py-3 px-6 rounded-lg font-bold transition-all duration-200 disabled:opacity-50"
+              >
+                {loading ? 'Envoi...' : 'Envoyer le lien'}
+              </button>
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={() => { setMode('login'); setError(''); setSuccess('') }}
+                  className="text-sm text-orange-400 hover:text-orange-300 transition-colors"
+                >
+                  ← Retour à la connexion
+                </button>
+              </div>
+            </form>
+          ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === 'register' && (
               <div>
@@ -353,6 +412,18 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
               )}
             </div>
 
+            {mode === 'login' && (
+              <div className="text-right -mt-2">
+                <button
+                  type="button"
+                  onClick={() => { setMode('forgot'); setError(''); setSuccess('') }}
+                  className="text-sm text-orange-400 hover:text-orange-300 transition-colors"
+                >
+                  Mot de passe oublié ?
+                </button>
+              </div>
+            )}
+
             <button
               type="submit"
               disabled={loading || (cooldownUntil !== null && Date.now() < cooldownUntil)}
@@ -365,6 +436,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
                 : 'Créer mon compte'}
             </button>
           </form>
+          )}
 
           <div className="mt-6 text-center">
             <p className="text-gray-400 text-sm">

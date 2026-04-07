@@ -43,6 +43,7 @@ import PrivacyPage from './pages/PrivacyPage';
 import CookiesPage from './pages/CookiesPage';
 import AccessibilityPage from './pages/AccessibilityPage';
 import AdsPage from './pages/AdsPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 
 const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { showAuthModal, setShowAuthModal } = useAuthGuard();
@@ -197,6 +198,7 @@ const AppContent: React.FC = () => {
         } />
 
         <Route path="/auth/callback" element={<MainLayout><AuthCallbackPage /></MainLayout>} />
+        <Route path="/reset-password" element={<MainLayout><ResetPasswordPage /></MainLayout>} />
         <Route path="/payment/success" element={<MainLayout><PaymentSuccessPage /></MainLayout>} />
         <Route path="/payment/cancel" element={<MainLayout><PaymentCancelPage /></MainLayout>} />
 

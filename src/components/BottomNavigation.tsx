@@ -12,11 +12,11 @@ const BottomNavigation: React.FC = () => {
 
   const publicNavItems = [
     { key: 'feed', path: '/feed', label: t('nav.feed') || 'Fil', icon: Users },
-    { key: 'search', path: '/search', label: t('nav.search') || 'Recherche', icon: Search }
+    { key: 'search', path: '/search', label: t('nav.search') || 'Recherche', icon: Search },
+    { key: 'albus', path: '/assistant', label: 'Albus', icon: Brain }
   ];
 
   const privateNavItems = [
-    { key: 'albus', path: '/assistant', label: 'Albus', icon: Brain },
     { key: 'profile', path: '/profile', label: t('nav.profile') || 'Profil', icon: User },
     { key: 'journal', path: '/journal', label: t('nav.journal') || 'Journal', icon: BookOpen }
   ];
