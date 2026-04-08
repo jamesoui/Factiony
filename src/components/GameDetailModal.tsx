@@ -61,6 +61,7 @@ interface GameDetailModalProps {
   onReview?: (review: string, rating: number) => void;
   onViewChange?: (view: string, userId?: string) => void;
   onUserClick?: (userId: string) => void;
+  initialTab?: string;
   controlledIsOnboarding?: boolean;
   controlledListType?: string;
   controlledIndex?: number;
@@ -112,6 +113,7 @@ const GameDetailModal: React.FC<GameDetailModalProps> = ({
   onReview,
   onViewChange,
   onUserClick,
+  initialTab,
   controlledIsOnboarding,
   controlledListType,
   controlledIndex,
@@ -128,7 +130,7 @@ const GameDetailModal: React.FC<GameDetailModalProps> = ({
   const listType = controlledListType !== undefined ? controlledListType : searchParams.get('list');
   const currentIndex = controlledIndex !== undefined ? controlledIndex : parseInt(searchParams.get('index') || '-1', 10);
   const [showReviewModal, setShowReviewModal] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(initialTab || 'overview');
   const [similarGames, setSimilarGames] = useState<any[]>([]);
   const [isFollowing, setIsFollowing] = useState(false);
   const [isAnticipating, setIsAnticipating] = useState(false);
