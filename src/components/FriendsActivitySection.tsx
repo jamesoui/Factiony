@@ -11,12 +11,11 @@ import {
   formatActivityDate,
   UserActivity
 } from '../lib/api/activities';
+import { gameToSlug } from '../utils/slugify';
 
-interface FriendsActivitySectionProps {
-  onGameClick?: (gameId: string) => void;
-}
+interface FriendsActivitySectionProps {}
 
-const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = ({ onGameClick }) => {
+const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = () => {
   const { user } = useAuth();
   const { language } = useLanguage();
   const navigate = useNavigate();
@@ -108,81 +107,89 @@ const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = ({ onGameC
       </div>
 
       <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
-        {activities.map((activity) => (
-          <div
-            key={activity.id}
-            className="flex-shrink-0 w-72 bg-gray-800 rounded-lg overflow-hidden hover:bg-gray-700 transition-colors cursor-pointer"
-            onClick={() => onGameClick?.(activity.game_id)}
-          >
-            {activity.game_image && (
-              <div
-                className="h-32 bg-cover bg-center relative"
-                style={{ backgroundImage: `url(${activity.game_image})` }}
-              >
-                <div className="absolute inset-0 bg-gradient-to-t from-gray-800 to-transparent" />
-              </div>
-            )}
+        {activities.map((activity) => {
+          const reviewId = activity.activity_data?.review_id;
+          const gameSlug = gameToSlug(Number(activity.game_id), activity.game_name);
 
-            <div className="p-4">
-              <div className="flex items-start space-x-3">
-                {activity.user_avatar ? (
-                  <img
-                    src={activity.user_avatar}
-                    alt={activity.username}
-                    className="w-9 h-9 rounded-full object-cover flex-shrink-0 cursor-pointer hover:ring-2 hover:ring-orange-400"
-                    onClick={(e) => { e.stopPropagation(); navigate(`/u/${activity.username}`); }}
-                  />
-                ) : (
-                  <div
-                    className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-500 to-purple-600 flex items-center justify-center text-white font-bold flex-shrink-0 text-sm cursor-pointer hover:ring-2 hover:ring-orange-400"
-                    onClick={(e) => { e.stopPropagation(); navigate(`/u/${activity.username}`); }}
-                  >
-                    {activity.username.charAt(0).toUpperCase()}
-                  </div>
-                )}
+          return (
+            <div
+              key={activity.id}
+              className="flex-shrink-0 w-72 bg-gray-800 rounded-lg overflow-hidden hover:bg-gray-700 transition-colors cursor-pointer"
+              onClick={() => reviewId ? navigate(`/review/${reviewId}`) : navigate(`/game/${gameSlug}`)}
+            >
+              {activity.game_image && (
+                <div
+                  className="h-32 bg-cover bg-center relative"
+                  style={{ backgroundImage: `url(${activity.game_image})` }}
+                >
+                  <div className="absolute inset-0 bg-gradient-to-t from-gray-800 to-transparent" />
+                </div>
+              )}
 
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1 mb-1 flex-wrap">
-                    <button
-                      className="font-semibold text-white text-sm hover:text-orange-400 transition-colors truncate"
+              <div className="p-4">
+                <div className="flex items-start space-x-3">
+                  {activity.user_avatar ? (
+                    <img
+                      src={activity.user_avatar}
+                      alt={activity.username}
+                      className="w-9 h-9 rounded-full object-cover flex-shrink-0 cursor-pointer hover:ring-2 hover:ring-orange-400"
+                      onClick={(e) => { e.stopPropagation(); navigate(`/u/${activity.username}`); }}
+                    />
+                  ) : (
+                    <div
+                      className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-500 to-purple-600 flex items-center justify-center text-white font-bold flex-shrink-0 text-sm cursor-pointer hover:ring-2 hover:ring-orange-400"
                       onClick={(e) => { e.stopPropagation(); navigate(`/u/${activity.username}`); }}
                     >
-                      {activity.username}
-                    </button>
-                    <span className="text-gray-400 text-xs flex-shrink-0">
-                      {getActivityMessage(activity, language)}
-                    </span>
-                  </div>
-
-                  <span className="text-orange-400 font-medium text-sm truncate block">
-                    {activity.game_name}
-                  </span>
-
-                  {activity.activity_type === 'rating' && activity.activity_data.rating && (
-                    <div className="flex items-center space-x-1 mt-2">
-                      <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
-                      <span className="text-yellow-400 font-semibold text-sm">
-                        {activity.activity_data.rating.toFixed(1)}
-                      </span>
-                      <span className="text-gray-500 text-xs">/5</span>
+                      {activity.username.charAt(0).toUpperCase()}
                     </div>
                   )}
 
-                  {activity.activity_type === 'review' && activity.activity_data.review_text && (
-                    <p className="text-gray-400 text-xs mt-2 line-clamp-2">
-                      {activity.activity_data.review_text}
-                    </p>
-                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1 mb-1 flex-wrap">
+                      <button
+                        className="font-semibold text-white text-sm hover:text-orange-400 transition-colors truncate"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/u/${activity.username}`); }}
+                      >
+                        {activity.username}
+                      </button>
+                      <span className="text-gray-400 text-xs flex-shrink-0">
+                        {getActivityMessage(activity, language)}
+                      </span>
+                    </div>
 
-                  <div className="flex items-center space-x-1 mt-2 text-gray-500 text-xs">
-                    <Clock className="h-3 w-3" />
-                    <span>{formatActivityDate(activity.created_at, language)}</span>
+                    <button
+                      className="text-orange-400 hover:text-orange-300 font-medium text-sm truncate block text-left w-full"
+                      onClick={(e) => { e.stopPropagation(); navigate(`/game/${gameSlug}`); }}
+                    >
+                      {activity.game_name}
+                    </button>
+
+                    {activity.activity_type === 'rating' && activity.activity_data.rating && (
+                      <div className="flex items-center space-x-1 mt-2">
+                        <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
+                        <span className="text-yellow-400 font-semibold text-sm">
+                          {activity.activity_data.rating.toFixed(1)}
+                        </span>
+                        <span className="text-gray-500 text-xs">/5</span>
+                      </div>
+                    )}
+
+                    {activity.activity_type === 'review' && activity.activity_data.review_text && (
+                      <p className="text-gray-400 text-xs mt-2 line-clamp-2">
+                        {activity.activity_data.review_text}
+                      </p>
+                    )}
+
+                    <div className="flex items-center space-x-1 mt-2 text-gray-500 text-xs">
+                      <Clock className="h-3 w-3" />
+                      <span>{formatActivityDate(activity.created_at, language)}</span>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <style>{`
