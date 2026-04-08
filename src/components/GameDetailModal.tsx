@@ -332,7 +332,7 @@ const GameDetailModal: React.FC<GameDetailModalProps> = ({
     setFollowersCount(0);
     setIsFollowing(false);
     setGameReviews([]);
-    setActiveTab('overview');
+    setActiveTab(initialTab || 'overview');
     setShowAllTags(false);
   }, [game?.id, isOpen]);
 

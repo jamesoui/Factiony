@@ -7,7 +7,6 @@ import FriendsActivitySection from "../components/FriendsActivitySection";
 import GameDetailModal from "../components/GameDetailModal";
 import AdBanner from "../components/ads/AdBanner";
 import { useAuth } from '../contexts/AuthContext';
-import { getGameById } from "../apiClient";
 
 export default function Discover() {
   const { user } = useAuth();
@@ -18,16 +17,10 @@ export default function Discover() {
   const [showGameDetail, setShowGameDetail] = useState(false);
 
   const handleGameClick = async (gameId: string) => {
-    try {
-      const gameData = await getGameById(Number(gameId));
-      if (gameData) {
-        setSelectedGame(gameData as Game);
-        setShowGameDetail(true);
-      }
-    } catch (err) {
-      console.error('[DISCOVER] Error loading game details:', err);
-    }
-  };
+  const handleGameClick = (gameId: string) => {
+  setSelectedGame({ id: Number(gameId) } as Game);
+  setShowGameDetail(true);
+};
 
   useEffect(() => {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
