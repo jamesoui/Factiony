@@ -12,14 +12,32 @@ import {
   UserActivity
 } from '../lib/api/activities';
 import { gameToSlug } from '../utils/slugify';
+import { supabase } from '../lib/supabaseClient';
 
 interface FriendsActivitySectionProps {}
+
+async function resolveReviewId(activity: UserActivity): Promise<string | null> {
+  if (activity.activity_data?.review_id) return activity.activity_data.review_id;
+  try {
+    const { data } = await supabase
+      .from('game_ratings')
+      .select('id')
+      .eq('user_id', activity.user_id)
+      .eq('game_id', activity.game_id)
+      .not('review_text', 'is', null)
+      .maybeSingle();
+    return data?.id || null;
+  } catch {
+    return null;
+  }
+}
 
 const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = () => {
   const { user } = useAuth();
   const { language } = useLanguage();
   const navigate = useNavigate();
   const [activities, setActivities] = useState<UserActivity[]>([]);
+  const [resolvedReviewIds, setResolvedReviewIds] = useState<Record<string, string | null>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -34,6 +52,13 @@ const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = () => {
       if (data.length > 0) {
         const enrichedData = await enrichActivitiesWithGameData(data, language);
         setActivities(enrichedData);
+
+        // Résoudre les review_id pour toutes les activités
+        const resolved: Record<string, string | null> = {};
+        await Promise.all(enrichedData.map(async (a) => {
+          resolved[a.id] = await resolveReviewId(a);
+        }));
+        setResolvedReviewIds(resolved);
       } else {
         setActivities([]);
       }
@@ -108,7 +133,7 @@ const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = () => {
 
       <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
         {activities.map((activity) => {
-          const reviewId = activity.activity_data?.review_id;
+          const reviewId = resolvedReviewIds[activity.id];
           const gameSlug = gameToSlug(Number(activity.game_id), activity.game_name);
 
           return (
