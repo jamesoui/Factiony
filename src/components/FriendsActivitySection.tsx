@@ -140,7 +140,7 @@ const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = () => {
             <div
               key={activity.id}
               className="flex-shrink-0 w-72 bg-gray-800 rounded-lg overflow-hidden hover:bg-gray-700 transition-colors cursor-pointer"
-              onClick={() => reviewId ? navigate(`/review/${reviewId}`) : navigate(`/game/${gameSlug}`)}
+              onClick={() => reviewId ? navigate(`/share/review/${reviewId}`) : navigate(`/game/${gameSlug}`)}
             >
               {activity.game_image && (
                 <div
