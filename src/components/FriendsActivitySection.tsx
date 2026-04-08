@@ -1,6 +1,7 @@
 import { logger } from '../lib/logger';
 import React, { useState, useEffect } from 'react';
 import { Star, Clock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import {
@@ -15,11 +16,10 @@ interface FriendsActivitySectionProps {
   onGameClick?: (gameId: string) => void;
 }
 
-const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = ({
-  onGameClick
-}) => {
+const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = ({ onGameClick }) => {
   const { user } = useAuth();
   const { language } = useLanguage();
+  const navigate = useNavigate();
   const [activities, setActivities] = useState<UserActivity[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -30,10 +30,7 @@ const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = ({
   const loadActivities = async () => {
     try {
       setLoading(true);
-      if (!user) {
-        setActivities([]);
-        return;
-      }
+      if (!user) { setActivities([]); return; }
       const data = await getFriendsActivities(15);
       if (data.length > 0) {
         const enrichedData = await enrichActivitiesWithGameData(data, language);
@@ -58,7 +55,7 @@ const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = ({
           </h2>
         </div>
         <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
-          {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+          {[1,2,3,4,5,6,7,8].map((i) => (
             <div key={i} className="flex-shrink-0 w-72 bg-gray-800 rounded-lg p-4 animate-pulse">
               <div className="h-32 bg-gray-700 rounded-lg mb-4"></div>
               <div className="flex items-start space-x-3">
@@ -84,9 +81,7 @@ const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = ({
             👥 {language === 'fr' ? 'Activité de mes follows' : 'Activity from my follows'}
           </h2>
           <p className="text-gray-400 text-sm">
-            {language === 'fr'
-              ? 'Découvrez ce que vos follows pensent des derniers jeux'
-              : 'See what your follows think about the latest games'}
+            {language === 'fr' ? 'Découvrez ce que vos follows pensent des derniers jeux' : 'See what your follows think about the latest games'}
           </p>
         </div>
         <div className="bg-gray-800 rounded-lg p-8 text-center">
@@ -108,9 +103,7 @@ const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = ({
           👥 {language === 'fr' ? 'Activité de mes follows' : 'Activity from my follows'}
         </h2>
         <p className="text-gray-400 text-sm">
-          {language === 'fr'
-            ? 'Découvrez ce que vos follows pensent des derniers jeux'
-            : 'See what your follows think about the latest games'}
+          {language === 'fr' ? 'Découvrez ce que vos follows pensent des derniers jeux' : 'See what your follows think about the latest games'}
         </p>
       </div>
 
@@ -136,19 +129,26 @@ const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = ({
                   <img
                     src={activity.user_avatar}
                     alt={activity.username}
-                    className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+                    className="w-9 h-9 rounded-full object-cover flex-shrink-0 cursor-pointer hover:ring-2 hover:ring-orange-400"
+                    onClick={(e) => { e.stopPropagation(); navigate(`/u/${activity.username}`); }}
                   />
                 ) : (
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-500 to-purple-600 flex items-center justify-center text-white font-bold flex-shrink-0 text-sm">
+                  <div
+                    className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-500 to-purple-600 flex items-center justify-center text-white font-bold flex-shrink-0 text-sm cursor-pointer hover:ring-2 hover:ring-orange-400"
+                    onClick={(e) => { e.stopPropagation(); navigate(`/u/${activity.username}`); }}
+                  >
                     {activity.username.charAt(0).toUpperCase()}
                   </div>
                 )}
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1 mb-1 flex-wrap">
-                    <span className="font-semibold text-white text-sm truncate">
+                    <button
+                      className="font-semibold text-white text-sm hover:text-orange-400 transition-colors truncate"
+                      onClick={(e) => { e.stopPropagation(); navigate(`/u/${activity.username}`); }}
+                    >
                       {activity.username}
-                    </span>
+                    </button>
                     <span className="text-gray-400 text-xs flex-shrink-0">
                       {getActivityMessage(activity, language)}
                     </span>

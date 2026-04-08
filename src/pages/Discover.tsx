@@ -19,7 +19,7 @@ export default function Discover() {
 
   const handleGameClick = async (gameId: string) => {
     try {
-      const gameData = await getGameById(gameId);
+      const gameData = await getGameById(Number(gameId));
       if (gameData) {
         setSelectedGame(gameData as Game);
         setShowGameDetail(true);
@@ -30,8 +30,6 @@ export default function Discover() {
   };
 
   useEffect(() => {
-    console.log("[DISCOVER] Loading top rated games via Edge Function...");
-
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
