@@ -1652,9 +1652,10 @@ className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border 
                         </div>
 
                         <ReviewCommentsList
-                          reviewId={review.id}
-                          onUserClick={onUserClick}
-                        />
+  reviewId={review.id}
+  onUserClick={onUserClick}
+  initialCount={review.commentsCount || 0}
+/>
                       </div>
                     ))}
                   </div>

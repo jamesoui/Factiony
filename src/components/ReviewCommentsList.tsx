@@ -10,14 +10,16 @@ interface ReviewCommentsListProps {
   reviewId: string;
   onUserClick?: (userId: string) => void;
   onCommentPosted?: () => void;
-  defaultOpen?: boolean; // quand appelé depuis le feed, on saute le toggle interne
+  defaultOpen?: boolean;
+  initialCount?: number;
 }
 
 const ReviewCommentsList: React.FC<ReviewCommentsListProps> = ({
   reviewId,
   onUserClick,
   onCommentPosted,
-  defaultOpen = false
+  defaultOpen = false,
+  initialCount = 0
 }) => {
   const { t, language } = useLanguage();
   const { user } = useAuth();
@@ -25,12 +27,11 @@ const ReviewCommentsList: React.FC<ReviewCommentsListProps> = ({
   const [comments, setComments] = useState<ReviewComment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showComments, setShowComments] = useState(defaultOpen);
-  const [commentsCount, setCommentsCount] = useState(0);
+  const [commentsCount, setCommentsCount] = useState(initialCount);
   const [newComment, setNewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Si defaultOpen, charger les commentaires immédiatement
   useEffect(() => {
     if (defaultOpen) {
       loadComments();
@@ -77,7 +78,6 @@ const ReviewCommentsList: React.FC<ReviewCommentsListProps> = ({
         onCommentPosted?.();
       } else {
         setError(result.error || 'Erreur lors de l\'envoi');
-        console.error('Comment creation failed:', result.error);
       }
     } catch (err) {
       console.error('Error submitting comment:', err);
@@ -96,11 +96,9 @@ const ReviewCommentsList: React.FC<ReviewCommentsListProps> = ({
     ? commentsCount === 1 ? '1 commentaire' : `${commentsCount} commentaires`
     : commentsCount === 1 ? '1 comment' : `${commentsCount} comments`;
 
-  // Mode feed (defaultOpen) : affiche directement le formulaire sans bouton toggle
   if (defaultOpen) {
     return (
       <div className="space-y-4">
-        {/* Formulaire */}
         <div className="space-y-2">
           <textarea
             value={newComment}
@@ -126,7 +124,6 @@ const ReviewCommentsList: React.FC<ReviewCommentsListProps> = ({
           </div>
         </div>
 
-        {/* Liste des commentaires */}
         {isLoading ? (
           <div className="text-center text-gray-500 py-4">
             {language === 'fr' ? 'Chargement...' : 'Loading...'}
@@ -152,7 +149,6 @@ const ReviewCommentsList: React.FC<ReviewCommentsListProps> = ({
     );
   }
 
-  // Mode normal (fiche jeu) : avec bouton toggle
   return (
     <div className="space-y-4">
       <button
