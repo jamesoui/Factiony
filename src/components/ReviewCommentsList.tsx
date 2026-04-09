@@ -93,8 +93,8 @@ const ReviewCommentsList: React.FC<ReviewCommentsListProps> = ({
   };
 
   const labelComments = language === 'fr'
-    ? commentsCount === 1 ? '1 commentaire' : `${commentsCount} commentaires`
-    : commentsCount === 1 ? '1 comment' : `${commentsCount} comments`;
+    ? commentsCount === 1 ? '1 commentaire' : commentsCount === 0 ? '0 commentaire' : `${commentsCount} commentaires`
+    : commentsCount === 1 ? '1 comment' : commentsCount === 0 ? '0 comment': `${commentsCount} comments`;
 
   if (defaultOpen) {
     return (
