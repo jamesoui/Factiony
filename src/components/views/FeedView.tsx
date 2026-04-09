@@ -109,23 +109,45 @@ const FeedView: React.FC<FeedViewProps> = ({ onUserClick, onGameClick }) => {
 
         // BUG 2 FIX : résoudre review_id pour toutes les critiques (nouvelles + anciennes)
         const reviewActivities = enriched.filter(
-          a => a.activity_type === 'review' || a.activity_data?.review_text
-        );
-        const resolved: Record<string, string | null> = {};
-        await Promise.all(
-          reviewActivities.map(async a => {
-            resolved[a.id] = await resolveReviewId(a);
-          })
-        );
-        setResolvedReviewIds(resolved);
+  a => a.activity_type === 'review' || a.activity_data?.review_text
+);
+const resolved: Record<string, string | null> = {};
+
+// Ceux qui ont déjà le review_id dans activity_data
+reviewActivities
+  .filter(a => a.activity_data?.review_id)
+  .forEach(a => { resolved[a.id] = a.activity_data.review_id; });
+
+// Ceux qui nécessitent un lookup — 1 seule requête
+const needsLookup = reviewActivities.filter(a => !a.activity_data?.review_id);
+if (needsLookup.length > 0) {
+  const { data: ratingsData } = await supabase
+    .from('game_ratings')
+    .select('id, user_id, game_id')
+    .in('user_id', needsLookup.map(a => a.user_id))
+    .not('review_text', 'is', null);
+
+  needsLookup.forEach(a => {
+    const match = ratingsData?.find(
+      r => r.user_id === a.user_id && String(r.game_id) === String(a.game_id)
+    );
+    resolved[a.id] = match?.id || null;
+    reviewIdCache[a.id] = resolved[a.id];
+  });
+}
+setResolvedReviewIds(resolved);
 
         // Statuts de like
         if (user) {
-          const statuses = await Promise.all(enriched.map(a => isActivityLikedByUser(a.id)));
-          const liked = new Set<string>();
-          enriched.forEach((a, i) => { if (statuses[i]) liked.add(a.id); });
-          setLikedActivities(liked);
-        }
+  const activityIds = enriched.map(a => a.id);
+  const { data: likedData } = await supabase
+    .from('activity_likes')
+    .select('activity_id')
+    .eq('user_id', user.id)
+    .in('activity_id', activityIds);
+  const liked = new Set<string>(likedData?.map(l => l.activity_id) || []);
+  setLikedActivities(liked);
+}
       } else {
         setActivities([]);
       }
