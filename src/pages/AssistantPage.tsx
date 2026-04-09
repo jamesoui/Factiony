@@ -55,8 +55,10 @@ export default function AssistantPage() {
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+  if (messages.length > 1 || loading) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
+  }
+}, [messages, loading]);
 
   useEffect(() => {
     if (user?.id) {

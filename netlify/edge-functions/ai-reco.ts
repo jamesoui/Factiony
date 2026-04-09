@@ -572,7 +572,7 @@ Réponds avec les meilleures stratégies/builds/conseils. Sois précis et action
         body: JSON.stringify({
           model: "mistral-small-latest", // FIX: small suffisant avec données Brave déjà structurées, 3x plus rapide
           temperature: 0.7,
-          max_tokens: 1200,
+          max_tokens: 2500,
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
@@ -675,7 +675,7 @@ Description (POURQUOI pour lui spécifiquement)
       body: JSON.stringify({
         model: "mistral-large-latest",
         temperature: 0.8,
-        max_tokens: 1500,
+        max_tokens: 2000,
         messages: [{ role: "user", content: reasoningPrompt }],
       }),
     });
