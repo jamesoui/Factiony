@@ -357,8 +357,8 @@ export default function AssistantPage() {
             <div className="flex items-center gap-3">
               <span className="bg-orange-600 text-white px-2 py-1 rounded text-xs font-bold">Albus</span>
               <div>
-                <h1 className="text-2xl font-bold text-white">On joue avec Albus 🤖</h1>
-                <p className="text-sm text-gray-400">{user ? 'Basé sur tes goûts Factiony' : 'Assistant gaming intelligent'}</p>
+                <h1 className="text-2xl font-bold text-white">Le Meilleur Assistant Gaming IA</h1>
+                <p className="text-sm text-gray-400">Recommandations, guides et conseils personnalisés</p>
               </div>
             </div>
             {user && (
