@@ -172,7 +172,7 @@ export default async (request: Request, context: Context) => {
   );
 
   const fallbackImage = "https://factiony.com/logo-factiony.png";
-  const ogImage = backgroundImage || fallbackImage;
+  const ogImage = `https://factiony.com/og/review/${reviewId}`;
 
   const ua = request.headers.get("user-agent") || "";
 
@@ -198,7 +198,9 @@ export default async (request: Request, context: Context) => {
   <meta property="og:description" content="${escapeHtml(ogDescription)}" />
   <meta property="og:image" content="${escapeHtml(ogImage)}" />
   <meta property="og:image:secure_url" content="${escapeHtml(ogImage)}" />
-  <meta property="og:image:type" content="image/jpeg" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="1080" />
+  <meta property="og:image:height" content="1080" />
   ${fbAppId ? `<meta property="fb:app_id" content="${escapeHtml(fbAppId)}" />` : ""}
 
   <meta name="twitter:card" content="summary_large_image" />
