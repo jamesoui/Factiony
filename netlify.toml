@@ -12,6 +12,12 @@ SECRETS_SCAN_OMIT_KEYS = "RAWG_API_KEY,SEED_SECRET_KEY,SUPABASE_SERVICE_ROLE_KEY
 
 # IMPORTANT: exclude share/og routes from SPA fallback
 [[redirects]]
+from = "/.netlify/functions/*"
+to = "/.netlify/functions/:splat"
+status = 200
+force = true
+
+[[redirects]]
 from = "/share/review/*"
 to = "/share/review/:splat"
 status = 200
