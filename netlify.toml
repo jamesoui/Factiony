@@ -4,6 +4,7 @@ command = "npx vite build"
 
 [functions]
   directory = "netlify/functions"
+  node_bundler = "esbuild"
 
 [build.environment]
 SECRETS_SCAN_SMART_DETECTION_OMIT_VALUES = "AIzaSyCnduNWsBXaMbDKgVB9mflpJIdPr7jceI0"
@@ -25,7 +26,7 @@ force = true
 
 [[redirects]]
 from = "/og/review/*"
-to = "/og/review/:splat"
+to = "/.netlify/functions/og-review"
 status = 200
 force = true
 
@@ -38,10 +39,6 @@ status = 200
 [[edge_functions]]
 function = "share-review"
 path = "/share/review/*"
-
-[[edge_functions]]
-function = "og-review"
-path = "/og/review/*"
 
 [[edge_functions]]
 function = "ai-reco"
