@@ -61,10 +61,11 @@ export const handler: Handler = async (event) => {
     const padX = isStory ? 80 : 64;
     const starSz = isStory ? 34 : 28;
 
-    // Font TTF (satori ne supporte pas woff2)
+    // Font OTF fiable via jsdelivr
     const fontRes = await fetch(
-      "https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuFufAZ9hiJ7W-mI.ttf"
+      "https://cdn.jsdelivr.net/gh/rsms/inter@v4.0/docs/font-files/Inter-Regular.otf"
     );
+    if (!fontRes.ok) throw new Error(`Font fetch failed: ${fontRes.status}`);
     const fontData = await fontRes.arrayBuffer();
 
     // Cover en base64
@@ -78,7 +79,7 @@ export const handler: Handler = async (event) => {
           const mime = imgRes.headers.get("content-type") ?? "image/jpeg";
           coverDataUrl = `data:${mime};base64,${b64}`;
         }
-      } catch { /* skip */ }
+      } catch { /* skip, use gradient fallback */ }
     }
 
     const el = {
