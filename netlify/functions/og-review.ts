@@ -3,8 +3,7 @@ import type { Handler } from "@netlify/functions";
 
 export const handler: Handler = async (event) => {
   try {
-    const parts = (event.path || "").split("/").filter(Boolean);
-    const reviewId = parts[parts.length - 1]?.replace(/^<|>$/g, "").trim();
+    const reviewId = (event.queryStringParameters?.id || "").replace(/^<|>$/g, "").trim();
     const format = event.queryStringParameters?.format === "story" ? "story" : "square";
 
     if (!reviewId) return { statusCode: 400, body: "Missing id" };
@@ -60,16 +59,12 @@ export const handler: Handler = async (event) => {
     const padX = isStory ? 80 : 64;
     const starSz = isStory ? 34 : 28;
 
-    // Build element tree using plain objects (no JSX needed)
     const el = {
       type: "div",
       props: {
         style: { width: w, height: h, background: BG, display: "flex", flexDirection: "column", fontFamily: "sans-serif", overflow: "hidden" },
         children: [
-          // Orange top bar
           { type: "div", props: { style: { width: "100%", height: 5, background: ORANGE, display: "flex" } } },
-
-          // Logo (story only)
           ...(isStory ? [{
             type: "div",
             props: {
@@ -77,8 +72,6 @@ export const handler: Handler = async (event) => {
               children: [{ type: "span", props: { style: { fontSize: 40, fontWeight: 700, color: ORANGE, letterSpacing: "0.05em" }, children: "FACTIONY" } }],
             },
           }] : []),
-
-          // Cover image
           {
             type: "div",
             props: {
@@ -101,8 +94,6 @@ export const handler: Handler = async (event) => {
               ],
             },
           },
-
-          // Body
           {
             type: "div",
             props: {
@@ -134,8 +125,6 @@ export const handler: Handler = async (event) => {
               ],
             },
           },
-
-          // Footer
           {
             type: "div",
             props: {
@@ -155,7 +144,7 @@ export const handler: Handler = async (event) => {
       },
     };
 
-    const imageResponse = new ImageResponse(el as any, { width: w, height: h });
+    const imageResponse = new ImageResponse(el as any, { width: w, height: h, fonts: [] });
     const buffer = Buffer.from(await imageResponse.arrayBuffer());
 
     return {
