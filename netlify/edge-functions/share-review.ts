@@ -172,7 +172,7 @@ export default async (request: Request, context: Context) => {
   );
 
   const fallbackImage = "https://factiony.com/logo-factiony.png";
-  const ogImage = `https://factiony.com/og/review/${reviewId}`;
+  const ogImage = `https://factiony.com/.netlify/functions/og-review?id=${reviewId}`;
 
   const ua = request.headers.get("user-agent") || "";
 
