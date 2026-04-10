@@ -4,6 +4,7 @@ import type { Handler } from "@netlify/functions";
 export const handler: Handler = async (event) => {
   try {
     const { default: satori } = await import("satori");
+
     const reviewId = (event.queryStringParameters?.id || "").replace(/^<|>$/g, "").trim();
     const format = event.queryStringParameters?.format === "story" ? "story" : "square";
 
@@ -60,7 +61,13 @@ export const handler: Handler = async (event) => {
     const padX = isStory ? 80 : 64;
     const starSz = isStory ? 34 : 28;
 
-    // Fetch cover as base64
+    // Font TTF (satori ne supporte pas woff2)
+    const fontRes = await fetch(
+      "https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuFufAZ9hiJ7W-mI.ttf"
+    );
+    const fontData = await fontRes.arrayBuffer();
+
+    // Cover en base64
     let coverDataUrl: string | null = null;
     if (coverUrl) {
       try {
@@ -73,10 +80,6 @@ export const handler: Handler = async (event) => {
         }
       } catch { /* skip */ }
     }
-
-    // Fetch font
-    const fontRes = await fetch("https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hiA.woff2");
-    const fontData = await fontRes.arrayBuffer();
 
     const el = {
       type: "div",
