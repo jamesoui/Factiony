@@ -18,8 +18,8 @@ status = 200
 force = true
 
 [[redirects]]
-from = "/og/review/:id"
-to = "/.netlify/functions/og-review/:id"
+from = "/og/review/*"
+to = "/.netlify/functions/og-review?id=:splat"
 status = 200
 force = true
 
