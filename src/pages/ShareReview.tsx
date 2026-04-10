@@ -58,7 +58,7 @@ const ShareReview: React.FC = () => {
     return () => clearTimeout(timeout);
   }, [id, navigate]);
 
-  const ogImageUrl = `${window.location.origin}/functions/v1/og-review-image?id=${id}`;
+  const ogImageUrl = `${window.location.origin}/api/og/critique/${id}`;
   const reviewUrl = `${window.location.origin}/review/${id}`;
   const excerpt = review?.review_text
     ? review.review_text.length > 120
@@ -74,8 +74,8 @@ const ShareReview: React.FC = () => {
         <meta property="og:title" content={review ? `Critique de ${review.gameName} par @${review.username}` : 'Critique sur Factiony'} />
         <meta property="og:description" content={excerpt} />
         <meta property="og:image" content={ogImageUrl} />
-        <meta property="og:image:width" content="1200" />
-        <meta property="og:image:height" content="630" />
+        <meta property="og:image:width" content="1080" />
+        <meta property="og:image:height" content="1080" />
         <meta property="og:url" content={reviewUrl} />
         <meta property="og:type" content="article" />
         <meta property="og:site_name" content="Factiony" />
