@@ -1,4 +1,5 @@
-import { ImageResponse } from "@vercel/og";
+import satori from "satori";
+import { Resvg } from "@resvg/resvg-js";
 import type { Handler } from "@netlify/functions";
 
 export const handler: Handler = async (event) => {
@@ -59,10 +60,28 @@ export const handler: Handler = async (event) => {
     const padX = isStory ? 80 : 64;
     const starSz = isStory ? 34 : 28;
 
+    // Fetch cover as base64
+    let coverDataUrl: string | null = null;
+    if (coverUrl) {
+      try {
+        const imgRes = await fetch(coverUrl);
+        if (imgRes.ok) {
+          const buf = await imgRes.arrayBuffer();
+          const b64 = Buffer.from(buf).toString("base64");
+          const mime = imgRes.headers.get("content-type") ?? "image/jpeg";
+          coverDataUrl = `data:${mime};base64,${b64}`;
+        }
+      } catch { /* skip */ }
+    }
+
+    // Fetch font
+    const fontRes = await fetch("https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hiA.woff2");
+    const fontData = await fontRes.arrayBuffer();
+
     const el = {
       type: "div",
       props: {
-        style: { width: w, height: h, background: BG, display: "flex", flexDirection: "column", fontFamily: "sans-serif", overflow: "hidden" },
+        style: { width: w, height: h, background: BG, display: "flex", flexDirection: "column", fontFamily: "Inter", overflow: "hidden" },
         children: [
           { type: "div", props: { style: { width: "100%", height: 5, background: ORANGE, display: "flex" } } },
           ...(isStory ? [{
@@ -77,8 +96,8 @@ export const handler: Handler = async (event) => {
             props: {
               style: { width: "100%", height: coverH, position: "relative", display: "flex", overflow: "hidden" },
               children: [
-                coverUrl
-                  ? { type: "img", props: { src: coverUrl, style: { width: "100%", height: "100%", objectFit: "cover" } } }
+                coverDataUrl
+                  ? { type: "img", props: { src: coverDataUrl, style: { width: "100%", height: "100%", objectFit: "cover" } } }
                   : { type: "div", props: { style: { width: "100%", height: "100%", background: "linear-gradient(160deg,#1a2d4a,#0d1f38)", display: "flex" } } },
                 {
                   type: "div",
@@ -144,8 +163,15 @@ export const handler: Handler = async (event) => {
       },
     };
 
-    const imageResponse = new ImageResponse(el as any, { width: w, height: h, fonts: [] });
-    const buffer = Buffer.from(await imageResponse.arrayBuffer());
+    const svg = await satori(el as any, {
+      width: w,
+      height: h,
+      fonts: [{ name: "Inter", data: fontData, weight: 400, style: "normal" }],
+    });
+
+    const resvg = new Resvg(svg, { fitTo: { mode: "width", value: w } });
+    const pngData = resvg.render();
+    const pngBuffer = pngData.asPng();
 
     return {
       statusCode: 200,
@@ -153,7 +179,7 @@ export const handler: Handler = async (event) => {
         "Content-Type": "image/png",
         "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
       },
-      body: buffer.toString("base64"),
+      body: Buffer.from(pngBuffer).toString("base64"),
       isBase64Encoded: true,
     };
 
