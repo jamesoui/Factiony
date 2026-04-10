@@ -1,9 +1,9 @@
-import satori from "satori";
 import { Resvg } from "@resvg/resvg-js";
 import type { Handler } from "@netlify/functions";
 
 export const handler: Handler = async (event) => {
   try {
+    const { default: satori } = await import("satori");
     const reviewId = (event.queryStringParameters?.id || "").replace(/^<|>$/g, "").trim();
     const format = event.queryStringParameters?.format === "story" ? "story" : "square";
 
