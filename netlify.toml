@@ -10,13 +10,6 @@ command = "npx vite build"
 SECRETS_SCAN_SMART_DETECTION_OMIT_VALUES = "AIzaSyCnduNWsBXaMbDKgVB9mflpJIdPr7jceI0"
 SECRETS_SCAN_OMIT_KEYS = "RAWG_API_KEY,SEED_SECRET_KEY,SUPABASE_SERVICE_ROLE_KEY"
 
-# Protect Netlify functions from SPA fallback
-[[redirects]]
-from = "/.netlify/functions/*"
-to = "/.netlify/functions/:splat"
-status = 200
-force = true
-
 # IMPORTANT: exclude share/og routes from SPA fallback
 [[redirects]]
 from = "/share/review/*"
@@ -25,8 +18,8 @@ status = 200
 force = true
 
 [[redirects]]
-from = "/og/review/*"
-to = "/.netlify/functions/og-review"
+from = "/og/review/:id"
+to = "/.netlify/functions/og-review/:id"
 status = 200
 force = true
 
