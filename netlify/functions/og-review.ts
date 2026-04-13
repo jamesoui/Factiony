@@ -57,8 +57,8 @@ export const handler: Handler = async (event) => {
     const h = isStory ? 1920 : 1080;
     const coverH = isStory ? 860 : 460;
     const padX = isStory ? 80 : 64;
-    const starSz = isStory ? 36 : 30;
-    const logoSz = isStory ? 44 : 36;
+    const starSz = isStory ? 38 : 32;
+    const logoSz = isStory ? 64 : 52;
 
     const fontData = readFileSync(join(__dirname, "fonts", "Inter.ttf"));
     const logoB64 = readFileSync(join(__dirname, "fonts", "logo.png")).toString("base64");
@@ -77,66 +77,52 @@ export const handler: Handler = async (event) => {
       } catch { /* skip */ }
     }
 
-    // Génère les étoiles avec support demi-étoile
-    // rating sur 5 (ex: 4.5)
+    // rating sur 5
     const ratingOn5 = rating > 5 ? rating / 2 : rating;
     const fullStars = Math.floor(ratingOn5);
     const hasHalf = (ratingOn5 - fullStars) >= 0.5;
     const emptyStars = 5 - fullStars - (hasHalf ? 1 : 0);
 
-    // Path SVG d'une étoile 5 branches (viewBox 0 0 24 24)
-    const STAR_PATH = "M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17 5.8 21.3l2.4-7.4L2 9.4h7.6z";
+    // Paths étoile 5 branches (viewBox 24x24)
+    const STAR_FULL = "M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17 5.8 21.3l2.4-7.4L2 9.4h7.6z";
+    // Moitié DROITE de l'étoile uniquement
+    const STAR_RIGHT_HALF = "M12,2 L14.4,9.4 L22,9.4 L15.8,13.9 L18.2,21.3 L12,17 Z";
 
-    const makeStar = (type: "full" | "half" | "empty", sz: number, idx: number) => {
-      if (type === "full") {
-        return {
-          type: "svg",
-          props: {
-            key: `s${idx}`,
-            width: sz, height: sz,
-            viewBox: "0 0 24 24",
-            style: { display: "flex" },
-            children: [
-              { type: "path", props: { d: STAR_PATH, fill: ORANGE } }
-            ]
-          }
-        };
-      }
-      if (type === "empty") {
-        return {
-          type: "svg",
-          props: {
-            key: `s${idx}`,
-            width: sz, height: sz,
-            viewBox: "0 0 24 24",
-            style: { display: "flex" },
-            children: [
-              { type: "path", props: { d: STAR_PATH, fill: "#2a3040" } }
-            ]
-          }
-        };
-      }
-      // half star: deux paths, gauche orange droite grise
-      return {
-        type: "svg",
-        props: {
-          key: `s${idx}`,
-          width: sz, height: sz,
-          viewBox: "0 0 24 24",
-          style: { display: "flex" },
-          children: [
-            { type: "path", props: { d: STAR_PATH, fill: "#2a3040" } },
-            { type: "path", props: { d: "M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17V2z", fill: ORANGE } },
-          ]
-        }
-      };
-    };
+    const makeStar = (type: "full" | "half" | "empty", sz: number, idx: number) => ({
+      type: "svg",
+      props: {
+        key: `s${idx}`,
+        width: sz, height: sz,
+        viewBox: "0 0 24 24",
+        style: { display: "flex" },
+        children: type === "full"
+          ? [{ type: "path", props: { d: STAR_FULL, fill: ORANGE } }]
+          : type === "empty"
+          ? [{ type: "path", props: { d: STAR_FULL, fill: "#2a3040" } }]
+          // demi-étoile : fond gris + moitié droite orange
+          : [
+              { type: "path", props: { d: STAR_FULL, fill: "#2a3040" } },
+              { type: "path", props: { d: STAR_RIGHT_HALF, fill: ORANGE } },
+            ],
+      },
+    });
 
     const starElements = [
       ...Array.from({ length: fullStars }, (_, i) => makeStar("full", starSz, i)),
       ...(hasHalf ? [makeStar("half", starSz, fullStars)] : []),
       ...Array.from({ length: emptyStars }, (_, i) => makeStar("empty", starSz, fullStars + (hasHalf ? 1 : 0) + i)),
     ];
+
+    const LogoRow = (sz: number) => ({
+      type: "div",
+      props: {
+        style: { display: "flex", alignItems: "center", gap: 12 },
+        children: [
+          { type: "img", props: { src: `data:image/png;base64,${logoB64}`, style: { width: sz, height: sz, objectFit: "contain" } } },
+          { type: "span", props: { style: { fontSize: sz * 0.75, fontWeight: 700, color: ORANGE, letterSpacing: "0.05em" }, children: "FACTIONY" } },
+        ],
+      },
+    });
 
     const el = {
       type: "div",
@@ -147,11 +133,8 @@ export const handler: Handler = async (event) => {
           ...(isStory ? [{
             type: "div",
             props: {
-              style: { display: "flex", justifyContent: "center", alignItems: "center", gap: 12, padding: "60px 0 40px" },
-              children: [
-                { type: "img", props: { src: `data:image/png;base64,${logoB64}`, style: { width: 48, height: 48, objectFit: "contain" } } },
-                { type: "span", props: { style: { fontSize: 44, fontWeight: 700, color: ORANGE, letterSpacing: "0.05em" }, children: "FACTIONY" } },
-              ],
+              style: { display: "flex", justifyContent: "center", padding: "60px 0 40px" },
+              children: [LogoRow(64)],
             },
           }] : []),
           {
@@ -164,9 +147,7 @@ export const handler: Handler = async (event) => {
                   : { type: "div", props: { style: { width: "100%", height: "100%", background: "linear-gradient(160deg,#1a2d4a,#0d1f38)", display: "flex" } } },
                 {
                   type: "div",
-                  props: {
-                    style: { position: "absolute", bottom: 0, left: 0, right: 0, height: Math.round(coverH * 0.4), background: `linear-gradient(to bottom, transparent, ${BG})`, display: "flex" },
-                  },
+                  props: { style: { position: "absolute", bottom: 0, left: 0, right: 0, height: Math.round(coverH * 0.4), background: `linear-gradient(to bottom, transparent, ${BG})`, display: "flex" } },
                 },
               ],
             },
@@ -184,7 +165,7 @@ export const handler: Handler = async (event) => {
                     style: { display: "flex", alignItems: "center", gap: 8 },
                     children: [
                       ...starElements,
-                      { type: "span", props: { style: { fontSize: isStory ? 36 : 28, color: ORANGE, fontWeight: 700, marginLeft: 10 }, children: `${ratingOn5} / 5` } },
+                      { type: "span", props: { style: { fontSize: isStory ? 36 : 28, color: ORANGE, fontWeight: 700, marginLeft: 12 }, children: `${ratingOn5} / 5` } },
                     ],
                   },
                 },
@@ -201,16 +182,7 @@ export const handler: Handler = async (event) => {
               style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: `20px ${padX}px ${isStory ? 80 : 36}px`, borderTop: "1px solid rgba(249,115,22,0.25)", marginTop: 16 },
               children: [
                 { type: "span", props: { style: { fontSize: isStory ? 30 : 24, color: MUTED }, children: `par @${username}` } },
-                {
-                  type: "div",
-                  props: {
-                    style: { display: "flex", alignItems: "center", gap: 10 },
-                    children: [
-                      { type: "img", props: { src: `data:image/png;base64,${logoB64}`, style: { width: logoSz, height: logoSz, objectFit: "contain" } } },
-                      { type: "span", props: { style: { fontSize: isStory ? 30 : 24, fontWeight: 700, color: ORANGE, letterSpacing: "0.05em" }, children: "FACTIONY" } },
-                    ],
-                  },
-                },
+                LogoRow(logoSz),
               ],
             },
           },
@@ -230,10 +202,7 @@ export const handler: Handler = async (event) => {
 
     return {
       statusCode: 200,
-      headers: {
-        "Content-Type": "image/png",
-        "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
-      },
+      headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400" },
       body: Buffer.from(pngBuffer).toString("base64"),
       isBase64Encoded: true,
     };
