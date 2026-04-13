@@ -64,7 +64,7 @@ export const handler: Handler = async (event) => {
     const starSz = isStory ? 34 : 28;
 
     // Font lue depuis le disque (bundlée avec la fonction)
-    const fontData = readFileSync(join(__dirname, "fonts", "Inter.ttf"));
+    const fontData = readFileSync(join(__dirname, "..", "functions", "fonts", "Inter.ttf"));
 
     // Cover en base64
     let coverDataUrl: string | null = null;
