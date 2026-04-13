@@ -1,5 +1,7 @@
 import { Resvg } from "@resvg/resvg-js";
 import type { Handler } from "@netlify/functions";
+import fs from "fs";
+import path from "path";
 
 export const handler: Handler = async (event) => {
   try {
@@ -62,11 +64,9 @@ export const handler: Handler = async (event) => {
     const starSz = isStory ? 34 : 28;
 
     // Font OTF fiable via jsdelivr
-    const fontRes = await fetch(
-      "https://cdn.jsdelivr.net/gh/rsms/inter@v4.0/docs/font-files/Inter-Regular.otf"
-    );
-    if (!fontRes.ok) throw new Error(`Font fetch failed: ${fontRes.status}`);
-    const fontData = await fontRes.arrayBuffer();
+    import fs from "fs";
+import path from "path";
+const fontData = fs.readFileSync(path.join(__dirname, "fonts/Inter.ttf"));
 
     // Cover en base64
     let coverDataUrl: string | null = null;
