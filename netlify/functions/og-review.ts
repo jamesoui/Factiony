@@ -118,7 +118,7 @@ export const handler: Handler = async (event) => {
       props: {
         style: { display: "flex", alignItems: "center", gap: 12 },
         children: [
-          { type: "img", props: { src: ..., style: { width: sz, height: sz, ... } } },
+          { type: "img", props: { src: `data:image/png;base64,${logoB64}`, style: { width: sz, height: sz, objectFit: "contain" } } },
           { type: "span", props: { style: { fontSize: isStory ? 30 : 24, fontWeight: 700, color: ORANGE, letterSpacing: "0.05em" }, children: "FACTIONY" } },
         ],
       },
