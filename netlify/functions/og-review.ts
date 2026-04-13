@@ -58,7 +58,7 @@ export const handler: Handler = async (event) => {
     const coverH = isStory ? 860 : 460;
     const padX = isStory ? 80 : 64;
     const starSz = isStory ? 38 : 32;
-    const logoSz = isStory ? 64 : 52;
+    const logoSz = isStory ? 100 : 80;
 
     const fontData = readFileSync(join(__dirname, "fonts", "Inter.ttf"));
     const logoB64 = readFileSync(join(__dirname, "fonts", "logo.png")).toString("base64");
@@ -85,8 +85,8 @@ export const handler: Handler = async (event) => {
 
     // Paths étoile 5 branches (viewBox 24x24)
     const STAR_FULL = "M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17 5.8 21.3l2.4-7.4L2 9.4h7.6z";
-    // Moitié DROITE de l'étoile uniquement
-    const STAR_RIGHT_HALF = "M12,2 L14.4,9.4 L22,9.4 L15.8,13.9 L18.2,21.3 L12,17 Z";
+    // Moitié GAUCHE de l'étoile uniquement
+    const STAR_LEFT_HALF = "M12,2 L9.6,9.4 L2,9.4 L8.2,13.9 L5.8,21.3 L12,17 Z";
 
     const makeStar = (type: "full" | "half" | "empty", sz: number, idx: number) => ({
       type: "svg",
@@ -102,7 +102,7 @@ export const handler: Handler = async (event) => {
           // demi-étoile : fond gris + moitié droite orange
           : [
               { type: "path", props: { d: STAR_FULL, fill: "#2a3040" } },
-              { type: "path", props: { d: STAR_RIGHT_HALF, fill: ORANGE } },
+              { type: "path", props: { d: STAR_LEFT_HALF, fill: ORANGE } },
             ],
       },
     });
@@ -118,8 +118,8 @@ export const handler: Handler = async (event) => {
       props: {
         style: { display: "flex", alignItems: "center", gap: 12 },
         children: [
-          { type: "img", props: { src: `data:image/png;base64,${logoB64}`, style: { width: sz, height: sz, objectFit: "contain" } } },
-          { type: "span", props: { style: { fontSize: sz * 0.75, fontWeight: 700, color: ORANGE, letterSpacing: "0.05em" }, children: "FACTIONY" } },
+          { type: "img", props: { src: ..., style: { width: sz, height: sz, ... } } },
+          { type: "span", props: { style: { fontSize: isStory ? 30 : 24, fontWeight: 700, color: ORANGE, letterSpacing: "0.05em" }, children: "FACTIONY" } },
         ],
       },
     });
