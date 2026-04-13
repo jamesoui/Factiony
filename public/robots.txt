@@ -2,8 +2,35 @@ User-agent: *
 Disallow: /.netlify/
 Disallow: /.netlify/functions/
 Disallow: /api/
-Disallow: /share/
-Disallow: /og/
+
+User-agent: Twitterbot
+Allow: /share/
+Allow: /og/
+
+User-agent: facebookexternalhit
+Allow: /share/
+Allow: /og/
+
+User-agent: Discordbot
+Allow: /share/
+Allow: /og/
+
+User-agent: LinkedInBot
+Allow: /share/
+Allow: /og/
+
+User-agent: WhatsApp
+Allow: /share/
+Allow: /og/
+
+User-agent: Instagram
+Allow: /share/
+Allow: /og/
+
+User-agent: Applebot
+Allow: /share/
+Allow: /og/
+
 Allow: /
 
 Sitemap: https://factiony.com/sitemap.xml
