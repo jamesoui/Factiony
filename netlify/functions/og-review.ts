@@ -157,7 +157,16 @@ export const handler: Handler = async (event) => {
               },
               children: [
                 { type: "span", props: { style: { fontSize: isStory ? 30 : 24, color: MUTED }, children: `par @${username}` } },
-                { type: "span", props: { style: { fontSize: isStory ? 30 : 24, fontWeight: 700, color: ORANGE, letterSpacing: "0.05em" }, children: "FACTIONY" } },
+                {
+  type: "div",
+  props: {
+    style: { display: "flex", alignItems: "center", gap: 8 },
+    children: [
+      { type: "img", props: { src: `data:image/png;base64,${readFileSync(join(__dirname, "fonts", "logo.png")).toString("base64")}`, style: { width: isStory ? 30 : 24, height: isStory ? 30 : 24, objectFit: "contain" } } },
+      { type: "span", props: { style: { fontSize: isStory ? 30 : 24, fontWeight: 700, color: ORANGE, letterSpacing: "0.05em" }, children: "FACTIONY" } },
+    ],
+  },
+},
               ],
             },
           },
