@@ -47,24 +47,21 @@ export const handler: Handler = async (event) => {
         : review.review_text
       : "";
 
-    const fullStars = Math.floor(rating);
-    const emptyStars = 5 - fullStars;
     const isStory = format === "story";
-
     const BG = "#0d1117";
     const ORANGE = "#f97316";
     const MUTED = "#8892a4";
     const WHITE = "#ffffff";
-    const STAR_CLIP = "polygon(50% 0%,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%)";
 
     const w = 1080;
     const h = isStory ? 1920 : 1080;
     const coverH = isStory ? 860 : 460;
     const padX = isStory ? 80 : 64;
-    const starSz = isStory ? 34 : 28;
+    const starSz = isStory ? 36 : 30;
+    const logoSz = isStory ? 44 : 36;
 
-    // Font lue depuis le disque (bundlée avec la fonction)
-    const fontData = readFileSync(join(__dirname, "..", "functions", "fonts", "Inter.ttf"));
+    const fontData = readFileSync(join(__dirname, "fonts", "Inter.ttf"));
+    const logoB64 = readFileSync(join(__dirname, "fonts", "logo.png")).toString("base64");
 
     // Cover en base64
     let coverDataUrl: string | null = null;
@@ -80,6 +77,67 @@ export const handler: Handler = async (event) => {
       } catch { /* skip */ }
     }
 
+    // Génère les étoiles avec support demi-étoile
+    // rating sur 5 (ex: 4.5)
+    const ratingOn5 = rating > 5 ? rating / 2 : rating;
+    const fullStars = Math.floor(ratingOn5);
+    const hasHalf = (ratingOn5 - fullStars) >= 0.5;
+    const emptyStars = 5 - fullStars - (hasHalf ? 1 : 0);
+
+    // Path SVG d'une étoile 5 branches (viewBox 0 0 24 24)
+    const STAR_PATH = "M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17 5.8 21.3l2.4-7.4L2 9.4h7.6z";
+
+    const makeStar = (type: "full" | "half" | "empty", sz: number, idx: number) => {
+      if (type === "full") {
+        return {
+          type: "svg",
+          props: {
+            key: `s${idx}`,
+            width: sz, height: sz,
+            viewBox: "0 0 24 24",
+            style: { display: "flex" },
+            children: [
+              { type: "path", props: { d: STAR_PATH, fill: ORANGE } }
+            ]
+          }
+        };
+      }
+      if (type === "empty") {
+        return {
+          type: "svg",
+          props: {
+            key: `s${idx}`,
+            width: sz, height: sz,
+            viewBox: "0 0 24 24",
+            style: { display: "flex" },
+            children: [
+              { type: "path", props: { d: STAR_PATH, fill: "#2a3040" } }
+            ]
+          }
+        };
+      }
+      // half star: deux paths, gauche orange droite grise
+      return {
+        type: "svg",
+        props: {
+          key: `s${idx}`,
+          width: sz, height: sz,
+          viewBox: "0 0 24 24",
+          style: { display: "flex" },
+          children: [
+            { type: "path", props: { d: STAR_PATH, fill: "#2a3040" } },
+            { type: "path", props: { d: "M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17V2z", fill: ORANGE } },
+          ]
+        }
+      };
+    };
+
+    const starElements = [
+      ...Array.from({ length: fullStars }, (_, i) => makeStar("full", starSz, i)),
+      ...(hasHalf ? [makeStar("half", starSz, fullStars)] : []),
+      ...Array.from({ length: emptyStars }, (_, i) => makeStar("empty", starSz, fullStars + (hasHalf ? 1 : 0) + i)),
+    ];
+
     const el = {
       type: "div",
       props: {
@@ -89,8 +147,11 @@ export const handler: Handler = async (event) => {
           ...(isStory ? [{
             type: "div",
             props: {
-              style: { display: "flex", justifyContent: "center", padding: "60px 0 40px" },
-              children: [{ type: "span", props: { style: { fontSize: 40, fontWeight: 700, color: ORANGE, letterSpacing: "0.05em" }, children: "FACTIONY" } }],
+              style: { display: "flex", justifyContent: "center", alignItems: "center", gap: 12, padding: "60px 0 40px" },
+              children: [
+                { type: "img", props: { src: `data:image/png;base64,${logoB64}`, style: { width: 48, height: 48, objectFit: "contain" } } },
+                { type: "span", props: { style: { fontSize: 44, fontWeight: 700, color: ORANGE, letterSpacing: "0.05em" }, children: "FACTIONY" } },
+              ],
             },
           }] : []),
           {
@@ -104,12 +165,7 @@ export const handler: Handler = async (event) => {
                 {
                   type: "div",
                   props: {
-                    style: {
-                      position: "absolute", bottom: 0, left: 0, right: 0,
-                      height: Math.round(coverH * 0.4),
-                      background: `linear-gradient(to bottom, transparent, ${BG})`,
-                      display: "flex",
-                    },
+                    style: { position: "absolute", bottom: 0, left: 0, right: 0, height: Math.round(coverH * 0.4), background: `linear-gradient(to bottom, transparent, ${BG})`, display: "flex" },
                   },
                 },
               ],
@@ -125,17 +181,10 @@ export const handler: Handler = async (event) => {
                 {
                   type: "div",
                   props: {
-                    style: { display: "flex", alignItems: "center", gap: 10 },
+                    style: { display: "flex", alignItems: "center", gap: 8 },
                     children: [
-                      ...Array.from({ length: fullStars }, (_, i) => ({
-                        type: "div",
-                        props: { key: `f${i}`, style: { width: starSz, height: starSz, background: ORANGE, clipPath: STAR_CLIP } },
-                      })),
-                      ...Array.from({ length: emptyStars }, (_, i) => ({
-                        type: "div",
-                        props: { key: `e${i}`, style: { width: starSz, height: starSz, background: "#2a3040", clipPath: STAR_CLIP } },
-                      })),
-                      { type: "span", props: { style: { fontSize: isStory ? 36 : 28, color: ORANGE, fontWeight: 700, marginLeft: 10 }, children: `${rating} / 5` } },
+                      ...starElements,
+                      { type: "span", props: { style: { fontSize: isStory ? 36 : 28, color: ORANGE, fontWeight: 700, marginLeft: 10 }, children: `${ratingOn5} / 5` } },
                     ],
                   },
                 },
@@ -149,24 +198,19 @@ export const handler: Handler = async (event) => {
           {
             type: "div",
             props: {
-              style: {
-                display: "flex", justifyContent: "space-between", alignItems: "center",
-                padding: `20px ${padX}px ${isStory ? 80 : 36}px`,
-                borderTop: "1px solid rgba(249,115,22,0.25)",
-                marginTop: 16,
-              },
+              style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: `20px ${padX}px ${isStory ? 80 : 36}px`, borderTop: "1px solid rgba(249,115,22,0.25)", marginTop: 16 },
               children: [
                 { type: "span", props: { style: { fontSize: isStory ? 30 : 24, color: MUTED }, children: `par @${username}` } },
                 {
-  type: "div",
-  props: {
-    style: { display: "flex", alignItems: "center", gap: 8 },
-    children: [
-      { type: "img", props: { src: `data:image/png;base64,${readFileSync(join(__dirname, "fonts", "logo.png")).toString("base64")}`, style: { width: isStory ? 30 : 24, height: isStory ? 30 : 24, objectFit: "contain" } } },
-      { type: "span", props: { style: { fontSize: isStory ? 30 : 24, fontWeight: 700, color: ORANGE, letterSpacing: "0.05em" }, children: "FACTIONY" } },
-    ],
-  },
-},
+                  type: "div",
+                  props: {
+                    style: { display: "flex", alignItems: "center", gap: 10 },
+                    children: [
+                      { type: "img", props: { src: `data:image/png;base64,${logoB64}`, style: { width: logoSz, height: logoSz, objectFit: "contain" } } },
+                      { type: "span", props: { style: { fontSize: isStory ? 30 : 24, fontWeight: 700, color: ORANGE, letterSpacing: "0.05em" }, children: "FACTIONY" } },
+                    ],
+                  },
+                },
               ],
             },
           },
