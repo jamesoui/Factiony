@@ -1,7 +1,6 @@
 import { Resvg } from "@resvg/resvg-js";
 import type { Handler } from "@netlify/functions";
-import fs from "fs";
-import path from "path";
+
 
 export const handler: Handler = async (event) => {
   try {
@@ -66,7 +65,7 @@ export const handler: Handler = async (event) => {
     // Font OTF fiable via jsdelivr
     import fs from "fs";
 import path from "path";
-const fontData = fs.readFileSync(path.join(__dirname, "fonts/Inter.ttf"));
+const fontData = require("fs").readFileSync(require("path").join(__dirname, "fonts/Inter.ttf"));
 
     // Cover en base64
     let coverDataUrl: string | null = null;
