@@ -16,159 +16,96 @@ export const handler = async () => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Get today's date for filtering
-    const today = new Date().toISOString().split('T')[0];
+    // Cutoff : tout ce que RAWG a modifié dans les dernières 24h
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-    // PART 1: Syncer SEULEMENT les jeux non sortis (released > today)
-    console.log("[SYNC] Syncing unreleased games...");
+    let page = 1;
+    let totalUpserted = 0;
+    let totalFailed = 0;
+    let done = false;
 
-    const { data: gamesToSync, error: fetchError } = await supabase
-      .from("games")
-      .select("id, slug, name, released")
-      .gt("released", today)
-      .order("released")
-      .limit(500);
+    while (!done) {
+      console.log(`[SYNC] Fetching page ${page}...`);
 
-    if (fetchError) throw fetchError;
-
-    let updated = 0;
-    let failed = 0;
-
-    if (gamesToSync && gamesToSync.length > 0) {
-      console.log(`[SYNC] Found ${gamesToSync.length} unreleased games to sync`);
-
-      for (const game of gamesToSync) {
-        try {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-
-          const rawgRes = await fetch(
-            `https://api.rawg.io/api/games/${game.id}?key=${RAWG_API_KEY}`
-          );
-
-          if (!rawgRes.ok) {
-            failed++;
-            continue;
-          }
-
-          const rawgData = await rawgRes.json();
-
-          const { error } = await supabase
-            .from("games")
-            .update({
-              slug: rawgData.slug || game.slug,
-              name: rawgData.name || game.name,
-              released: rawgData.released,
-              description_raw: rawgData.description,
-              genres: rawgData.genres || [],
-              platforms: rawgData.platforms || [],
-              tags: rawgData.tags || [],
-              playtime: rawgData.playtime,
-              updated_at: new Date().toISOString()
-            })
-            .eq("id", game.id);
-
-          if (!error) {
-            updated++;
-            console.log(`[SYNC] Updated: ${game.name}`);
-          } else {
-            failed++;
-          }
-        } catch (e) {
-          console.error(`[SYNC] Error for game ${game.id}:`, e);
-          failed++;
-        }
-      }
-    } else {
-      console.log("[SYNC] No unreleased games to sync");
-    }
-
-    // PART 2: Ajouter les NOUVEAUX jeux (recently added to RAWG)
-    console.log("[SYNC] Searching for newly added games on RAWG...");
-    let newAdded = 0;
-
-    try {
-      const newGamesRes = await fetch(
-        `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&ordering=-added&page_size=50`
+      const res = await fetch(
+        `https://api.rawg.io/api/games?key=${RAWG_API_KEY}&ordering=-updated&page_size=100&page=${page}`
       );
 
-      if (newGamesRes.ok) {
-        const { results: newGames } = await newGamesRes.json();
+      if (!res.ok) {
+        console.error(`[SYNC] RAWG error on page ${page}: ${res.status}`);
+        break;
+      }
 
-        if (newGames && newGames.length > 0) {
-          console.log(`[SYNC] Found ${newGames.length} recently added games`);
+      const { results, next } = await res.json();
 
-          for (const game of newGames) {
-            try {
-              // Vérifier si jeu existe déjà
-              const { data: existing, error: checkError } = await supabase
-                .from("games")
-                .select("id")
-                .eq("id", game.id)
-                .single();
+      if (!results || results.length === 0) break;
 
-              // Si pas d'erreur et data existe = jeu est déjà en DB
-              if (!checkError && existing) {
-                continue;
-              }
+      for (const game of results) {
+        // Dès qu'on trouve un jeu modifié avant le cutoff, on arrête tout
+        if (game.updated && new Date(game.updated) < cutoff) {
+          console.log(`[SYNC] Reached games older than 24h at page ${page}. Stopping.`);
+          done = true;
+          break;
+        }
 
-              // Ajouter le nouveau jeu
-              const { error: insertError } = await supabase
-                .from("games")
-                .insert({
-                  id: game.id,
-                  slug: game.slug,
-                  name: game.name,
-                  released: game.released,
-                  description_raw: game.description,
-                  genres: game.genres || [],
-                  platforms: game.platforms || [],
-                  tags: game.tags || [],
-                  metacritic: game.metacritic,
-                  playtime: game.playtime,
-                  background_image: game.background_image,
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString()
-                });
+        const { error } = await supabase.from("games").upsert(
+          {
+            id: game.id,
+            slug: game.slug,
+            name: game.name,
+            released: game.released,
+            background_image: game.background_image,
+            genres: game.genres || [],
+            platforms: game.platforms || [],
+            tags: game.tags || [],
+            metacritic: game.metacritic,
+            playtime: game.playtime,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "id" }
+        );
 
-              if (!insertError) {
-                newAdded++;
-                console.log(`[SYNC] Added new: ${game.name}`);
-              }
-            } catch (e) {
-              console.error(`[SYNC] Error adding game ${game.id}:`, e);
-            }
-          }
+        if (error) {
+          console.error(`[SYNC] Upsert error for ${game.name}:`, error.message);
+          totalFailed++;
+        } else {
+          totalUpserted++;
         }
       }
-    } catch (e) {
-      console.error("[SYNC] Error checking new games:", e);
+
+      // Plus de pages dispo côté RAWG
+      if (!next) break;
+
+      page++;
+
+      // Pause entre pages pour ne pas spammer RAWG
+      await new Promise((r) => setTimeout(r, 300));
     }
 
     console.log(
-      `[SYNC] Complete. Updated: ${updated}, Failed: ${failed}, New added: ${newAdded}`
+      `[SYNC] Complete. Pages fetched: ${page}, Upserted: ${totalUpserted}, Failed: ${totalFailed}`
     );
 
     return {
       statusCode: 200,
       body: JSON.stringify({
         success: true,
-        updated,
-        failed,
-        newAdded,
-        message: `Updated ${updated} unreleased games, Added ${newAdded} new games`
-      })
+        pages: page,
+        upserted: totalUpserted,
+        failed: totalFailed,
+      }),
     };
   } catch (error) {
-    console.error("[SYNC] Error:", error);
+    console.error("[SYNC] Fatal error:", error);
     return {
       statusCode: 500,
       body: JSON.stringify({
-        error: error instanceof Error ? error.message : "Unknown error"
-      })
+        error: error instanceof Error ? error.message : "Unknown error",
+      }),
     };
   }
 };
 
 export const config = {
-  schedule: "0 2 * * *"
+  schedule: "0 2 * * *",
 };
