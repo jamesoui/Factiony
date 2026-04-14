@@ -194,30 +194,31 @@ export const ShareReviewButton: React.FC<ShareReviewButtonProps> = ({
   };
 
   const downloadOgImage = async () => {
-    try {
-      const ogImageUrl = `https://factiony.com/og/review/${reviewId}.png`;
+  try {
+    // Format story 9:16 pour TikTok et Instagram
+    const ogImageUrl = `https://factiony.com/.netlify/functions/og-review?id=${reviewId}&format=story`;
 
-      trackEvent('share_click', {
-        network: 'download_image',
-        game_id: gameId?.toString() || null,
-        review_id: reviewId
-      });
+    trackEvent('share_click', {
+      network: 'download_image',
+      game_id: gameId?.toString() || null,
+      review_id: reviewId
+    });
 
-      const response = await fetch(ogImageUrl);
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `factiony-review-${reviewId}.png`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      setShowShareMenu(false);
-    } catch (err) {
-      console.error('Download failed:', err);
-    }
-  };
+    const response = await fetch(ogImageUrl);
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `factiony-review-${reviewId}.png`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    setShowShareMenu(false);
+  } catch (err) {
+    console.error('Download failed:', err);
+  }
+};
 
   return (
     <div className={`relative ${className}`}>
@@ -309,7 +310,7 @@ export const ShareReviewButton: React.FC<ShareReviewButtonProps> = ({
               className="w-full flex items-center space-x-3 px-4 py-3 hover:bg-gray-700 text-white transition-colors border-t border-gray-700"
             >
               <Download className="w-4 h-4" />
-              <span>Télécharger l'image</span>
+              <span>Story (TikTok / Instagram)</span>
             </button>
           </div>
         </>
