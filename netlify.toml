@@ -10,6 +10,9 @@ command = "npx vite build"
   external_node_modules = ["@resvg/resvg-js", "satori"]
   included_files = ["netlify/functions/fonts/*"]
 
+[functions."scheduled-sync-games"]
+  schedule = "0 2 * * *"
+
 [build.environment]
 SECRETS_SCAN_SMART_DETECTION_OMIT_VALUES = "AIzaSyCnduNWsBXaMbDKgVB9mflpJIdPr7jceI0"
 SECRETS_SCAN_OMIT_KEYS = "RAWG_API_KEY,SEED_SECRET_KEY,SUPABASE_SERVICE_ROLE_KEY"
