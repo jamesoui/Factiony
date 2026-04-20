@@ -15,7 +15,7 @@ interface JournalViewProps {
 
 const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const navigate = useNavigate();
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [platformFilter, setPlatformFilter] = useState<string>('all');

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 import { useAuthGuard } from '../contexts/AuthGuardContext';
 import { supabase } from '../lib/supabaseClient';
 import { Trash2, Plus, AlertCircle } from 'lucide-react';
@@ -32,6 +33,7 @@ type Conversation = {
 
 export default function AssistantPage() {
   const { user } = useAuth();
+  const { language } = useLanguage();
   const { setShowAuthModal } = useAuthGuard();
   const firstName = user?.user_metadata?.full_name?.split(' ')[0] || user?.user_metadata?.username || user?.email?.split('@')[0] || 'Joueur';
   const userPseudo = user?.user_metadata?.username || user?.email?.split('@')[0] || 'Gamer';
