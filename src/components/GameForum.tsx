@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLanguage } from '../contexts/LanguageContext';
 import {
   Search,
   Plus,
@@ -188,6 +189,7 @@ const PostItem: React.FC<PostItemProps> = ({ post, userId, level, onLike, onDele
 };
 
 export const GameForum: React.FC<GameForumProps> = ({ gameId, gameName }) => {
+  const { language } = useLanguage();
   const { user } = useAuth();
   const { withAuthCheck } = useAuthGuard();
 
@@ -697,7 +699,7 @@ export const GameForum: React.FC<GameForumProps> = ({ gameId, gameName }) => {
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Rechercher dans le forum..."
+                      placeholder={language === 'en' ? 'Search the forum...' : 'Rechercher dans le forum...'}
                       className="w-full bg-gray-800 text-white rounded-lg pl-10 pr-4 py-3 border border-gray-700 focus:border-blue-500 focus:outline-none transition-colors"
                     />
                   </div>
@@ -717,7 +719,7 @@ export const GameForum: React.FC<GameForumProps> = ({ gameId, gameName }) => {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-400">Trier par:</span>
+                  <span className="text-sm text-gray-400">{language === 'en' ? 'Sort by:' : 'Trier par:'}</span>
                   <div className="flex gap-2">
                     <button
                       onClick={() => setSortBy('activity')}
@@ -760,7 +762,7 @@ export const GameForum: React.FC<GameForumProps> = ({ gameId, gameName }) => {
                 {threads.length === 0 ? (
                   <div className="bg-gray-800/30 rounded-xl p-12 border border-gray-700/30 text-center">
                     <MessageCircle className="h-12 w-12 text-gray-600 mx-auto mb-4" />
-                    <p className="text-gray-400 mb-2">Aucune discussion pour le moment</p>
+                    <p className="text-gray-400 mb-2">{language === 'en' ? 'No discussions yet' : 'Aucune discussion pour le moment'}</p>
                     <p className="text-sm text-gray-500">
                       Soyez le premier à créer un sujet dans cette catégorie
                     </p>
