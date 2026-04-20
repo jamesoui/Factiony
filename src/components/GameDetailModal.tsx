@@ -1239,11 +1239,11 @@ setTempReview(reviewVal);
                       {loadingFullGame ? (
                         <div className="flex items-center space-x-2 text-gray-400">
                           <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-orange-500"></div>
-                          <span className="text-sm">Chargement de la description...</span>
+                          <span className="text-sm">{language === 'en' ? 'Loading description...' : 'Chargement de la description...'}</span>
                         </div>
                       ) : (
                         <p className="text-white/80 leading-relaxed text-sm whitespace-pre-line">
-                          {g?.description_raw || game.description || 'Aucune description disponible.'}
+                          {g?.description_raw || game.description || (language === 'en' ? 'No description available.' : 'Aucune description disponible.')}
                         </p>
                       )}
                     </div>

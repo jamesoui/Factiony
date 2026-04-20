@@ -190,6 +190,13 @@ const PostItem: React.FC<PostItemProps> = ({ post, userId, level, onLike, onDele
 
 export const GameForum: React.FC<GameForumProps> = ({ gameId, gameName }) => {
   const { language } = useLanguage();
+
+  const categoryTranslations: Record<string, { name: string; description: string }> = {
+    announcements: { name: language === 'en' ? 'Announcements' : 'Annonces & Mises à jour', description: language === 'en' ? 'Official news, patches and updates' : 'Actualités officielles, patchs et mises à jour du jeu' },
+    guides: { name: language === 'en' ? 'Guides & Questions' : 'Guides & Questions', description: language === 'en' ? 'Tutorials, tips, help and gameplay questions' : 'Tutoriels, astuces, aide et questions sur le gameplay' },
+    bugs: { name: language === 'en' ? 'Bugs & Support' : 'Bugs & Support', description: language === 'en' ? 'Report bugs, technical issues and get help' : "Signaler des bugs, problèmes techniques et demander de l'aide" },
+    discussion: { name: language === 'en' ? 'Discussions & Community' : 'Discussions & Communauté', description: language === 'en' ? 'General discussions, share experiences' : "Discussions générales, partage d'expériences et échanges" },
+  };
   const { user } = useAuth();
   const { withAuthCheck } = useAuthGuard();
 
@@ -654,7 +661,7 @@ export const GameForum: React.FC<GameForumProps> = ({ gameId, gameName }) => {
       <div className="flex flex-col lg:flex-row gap-6">
         <div className="lg:w-80 flex-shrink-0">
           <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50 sticky top-4">
-            <h3 className="text-white font-semibold mb-4">Catégories</h3>
+            <h3 className="text-white font-semibold mb-4">{language === 'en' ? 'Categories' : 'Catégories'}</h3>
             <div className="space-y-2">
               {categories.map((category) => {
                 const Icon = getIconComponent(category.icon);
@@ -674,10 +681,10 @@ export const GameForum: React.FC<GameForumProps> = ({ gameId, gameName }) => {
                       <Icon className={`h-5 w-5 flex-shrink-0 ${isSelected ? 'text-blue-400' : 'text-gray-400'}`} />
                       <div className="flex-1 min-w-0">
                         <div className={`font-medium mb-1 ${isSelected ? 'text-white' : 'text-gray-300'}`}>
-                          {category.name}
+                          {categoryTranslations[category.key]?.name || category.name}
                         </div>
                         <div className="text-xs text-gray-400 line-clamp-2">
-                          {category.description}
+                          {categoryTranslations[category.key]?.description || category.description}
                         </div>
                       </div>
                     </div>
