@@ -70,11 +70,11 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
   };
 
   const statusLabels: Record<string, string> = {
-    all: 'Tous',
-    'En cours': '🎮 En cours',
-    'Terminé': '✅ Terminé',
-    '100% terminé': '🏆 100% terminé',
-    'Abandonné': '❌ Abandonné',
+    all: language === 'en' ? 'All' : 'Tous',
+    'En cours': language === 'en' ? '🎮 Playing' : '🎮 En cours',
+    'Terminé': language === 'en' ? '✅ Completed' : '✅ Terminé',
+    '100% terminé': language === 'en' ? '🏆 100% Done' : '🏆 100% terminé',
+    'Abandonné': language === 'en' ? '❌ Dropped' : '❌ Abandonné',
     'Wishlist': '🔖 Wishlist',
   };
 
@@ -282,7 +282,7 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
               onClick={resetFilters}
               className="px-3 py-2 rounded-lg text-sm text-red-400 hover:bg-gray-700 transition-colors border border-red-800"
             >
-              ✕ Réinitialiser
+              {language === 'en' ? '✕ Reset' : '✕ Réinitialiser'}
             </button>
           )}
 
@@ -309,7 +309,7 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
         <div className="space-y-6 mb-8">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {Object.keys(userStats.yearlyStats).length > 0 && (
-              <StatsChart title="Jeux par Année de Sortie" data={userStats.yearlyStats} type="line" color="blue" />
+              <StatsChart title={language === 'en' ? 'Games by Release Year' : 'Jeux par Année de Sortie'} data={userStats.yearlyStats} type="line" color="blue" />
             )}
             {Object.keys(userStats.genreBreakdown).length > 0 && (
               <StatsChart title={language === 'en' ? 'Genre Breakdown' : 'Répartition par Genre'} data={userStats.genreBreakdown} type="pie" color="green" />

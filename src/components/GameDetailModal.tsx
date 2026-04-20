@@ -120,7 +120,7 @@ const GameDetailModal: React.FC<GameDetailModalProps> = ({
   onPrev,
   onNext
 }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { user } = useAuth();
   const { requireAuth } = useAuthGuard();
   const navigate = useNavigate();
@@ -1299,12 +1299,12 @@ setTempReview(reviewVal);
 )}
 {(userRating as any)?.game_status && (
   <div className="text-sm text-gray-300">
-    📋 Statut : <span className="text-white font-medium">{(userRating as any).game_status}</span>
+    {language === 'en' ? '📋 Status:' : '📋 Statut :'} <span className="text-white font-medium">{(userRating as any).game_status}</span>
   </div>
 )}
                         {userRating.review_text && (
                           <div className="bg-gray-800 rounded-lg p-4">
-                            <p className="text-sm text-gray-400 mb-1">Ma critique :</p>
+                            <p className="text-sm text-gray-400 mb-1">{ language === 'en' ? 'My review:' : 'Ma critique :'}</p>
                             <p className="text-white">{userRating.review_text}</p>
                           </div>
                         )}
