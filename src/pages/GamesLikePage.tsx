@@ -93,7 +93,7 @@ const GamesLikePage: React.FC = () => {
     );
   }
 
-  const pageTitle = `Jeux similaires à ${currentGame.name} | Recommandations joueurs`;
+  const pageTitle = language === 'en' ? `Similar to ${currentGame.name} | Player Recommendations` : `Jeux similaires à ${currentGame.name} | Recommandations joueurs`;
   const pageDescription = `Découvrez les jeux similaires à ${currentGame.name} selon les notes et critiques des joueurs. Trouvez votre prochain jeu basé sur vos goûts.`;
 
   return (
@@ -122,7 +122,7 @@ const GamesLikePage: React.FC = () => {
 
           <div className="mb-8">
             <h1 className="text-3xl sm:text-4xl font-bold text-white mb-4">
-              Jeux similaires à <span className="text-blue-400">{currentGame.name}</span>
+              {language === 'en' ? 'Similar to ' : 'Jeux similaires à '}<span className="text-blue-400">{currentGame.name}</span>
             </h1>
             <p className="text-gray-300 text-lg leading-relaxed">
               Vous aimez <strong>{currentGame.name}</strong> ? Voici les jeux les plus proches en termes de gameplay,

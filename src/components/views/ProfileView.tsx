@@ -23,7 +23,7 @@ interface ProfileViewProps {
 
 const ProfileView: React.FC<ProfileViewProps> = ({ onViewChange, onUserClick }) => {
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [showStats, setShowStats] = useState(false);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [showGameDetail, setShowGameDetail] = useState(false);
@@ -263,12 +263,12 @@ return { ...section, games: orderedGames };
         <div className="bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-700 text-center">
           <Clock className="h-8 w-8 text-blue-500 mx-auto mb-3" />
           <div className="text-2xl font-bold text-white mb-1">{followedGamesCount}</div>
-          <div className="text-sm text-gray-400">Jeux en attente</div>
+          <div className="text-sm text-gray-400">{language === 'en' ? 'On Hold' : 'Jeux en attente'}</div>
         </div>
         <div className="bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-700 text-center">
           <Heart className="h-8 w-8 text-red-500 mx-auto mb-3" />
           <div className="text-2xl font-bold text-white mb-1">{topRatedGames.length}</div>
-          <div className="text-sm text-gray-400">Top jeux notés</div>
+          <div className="text-sm text-gray-400">{language === 'en' ? 'Top Rated' : 'Top jeux notés'}</div>
         </div>
         <div className="bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-700 text-center">
           <Star className="h-8 w-8 text-yellow-500 mx-auto mb-3" />
@@ -481,7 +481,7 @@ return { ...section, games: orderedGames };
                 <div key={activity.id} className="flex items-center space-x-4 p-4 bg-gray-700 rounded-lg">
                   <img src={activity.game_data.background_image || ''} alt={activity.game_data.name} className="w-16 h-20 bg-gray-600 rounded flex-shrink-0 object-cover" />
                   <div className="flex-1">
-                    <p className="text-white font-medium">A noté {activity.game_data.name}</p>
+                    <p className="text-white font-medium">{language === 'en' ? `Rated ${activity.game_data.name}` : `A noté ${activity.game_data.name}`}</p>
                     <p className="text-gray-400 text-sm flex items-center space-x-2">
                       <span>Il y a {daysAgo === 0 ? "aujourd'hui" : `${daysAgo} jour${daysAgo > 1 ? 's' : ''}`}</span>
                       <span>•</span>

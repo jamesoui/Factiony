@@ -63,7 +63,7 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
 
   const getRatingCategory = (rating: number): string => {
     if (rating >= 4.5) return 'Excellent';
-    if (rating >= 4) return 'Très bon';
+    if (rating >= 4) return language === 'en' ? 'Very Good' : 'Très bon';
     if (rating >= 3) return 'Bon';
     if (rating >= 2) return 'Moyen';
     return 'Décevant';
@@ -79,7 +79,7 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
   };
 
   const sortLabels: Record<string, string> = {
-    date_desc: '📅 Plus récent',
+    date_desc: language === 'en' ? '📅 Most Recent' : '📅 Plus récent',
     date_asc: '📅 Plus ancien',
     rating_desc: '⭐ Mieux noté',
     rating_asc: '⭐ Moins bien noté',
@@ -184,10 +184,10 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
       {/* Stats Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {[
-          { label: 'Jeux notés', count: ratedGames.length, icon: BookOpen, color: 'text-orange-600' },
+          { label: language === 'en' ? 'Games Rated' : 'Jeux notés', count: ratedGames.length, icon: BookOpen, color: 'text-orange-600' },
           { label: 'Excellent (4.5+)', count: getCategoryCount('excellent'), icon: Star, color: 'text-yellow-600' },
-          { label: 'Très bon (4+)', count: getCategoryCount('très bon'), icon: TrendingUp, color: 'text-green-600' },
-          { label: 'Note moyenne', count: userStats?.averageRating || 0, icon: BarChart3, color: 'text-blue-600' }
+          { label: language === 'en' ? 'Very Good (4+)' : 'Très bon (4+)', count: getCategoryCount('très bon'), icon: TrendingUp, color: 'text-green-600' },
+          { label: language === 'en' ? 'Avg. Rating' : 'Note moyenne', count: userStats?.averageRating || 0, icon: BarChart3, color: 'text-blue-600' }
         ].map(({ label, count, icon: Icon, color }) => (
           <div key={label} className="bg-gray-800 rounded-lg p-6 shadow-sm border border-gray-700">
             <div className="flex items-center justify-between">
@@ -229,7 +229,7 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
                 onChange={e => setPlatformFilter(e.target.value)}
                 className={`appearance-none pl-3 pr-8 py-2 rounded-lg text-sm border bg-gray-700 text-gray-300 border-gray-600 hover:border-gray-500 focus:outline-none focus:border-orange-500 ${platformFilter !== 'all' ? 'border-orange-500 text-orange-300' : ''}`}
               >
-                <option value="all">🎮 Toutes plateformes</option>
+                <option value="all">{language === 'en' ? '🎮 All Platforms' : '🎮 Toutes plateformes'}</option>
                 {filterOptions.platforms.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
               <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
@@ -243,7 +243,7 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
                 onChange={e => setYearFilter(e.target.value)}
                 className={`appearance-none pl-3 pr-8 py-2 rounded-lg text-sm border bg-gray-700 text-gray-300 border-gray-600 hover:border-gray-500 focus:outline-none focus:border-orange-500 ${yearFilter !== 'all' ? 'border-orange-500 text-orange-300' : ''}`}
               >
-                <option value="all">📅 Toutes années</option>
+                <option value="all">{language === 'en' ? '📅 All Years' : '📅 Toutes années'}</option>
                 {filterOptions.years.map(y => <option key={y} value={y}>{y}</option>)}
               </select>
               <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
@@ -257,7 +257,7 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
                 onChange={e => setGenreFilter(e.target.value)}
                 className={`appearance-none pl-3 pr-8 py-2 rounded-lg text-sm border bg-gray-700 text-gray-300 border-gray-600 hover:border-gray-500 focus:outline-none focus:border-orange-500 ${genreFilter !== 'all' ? 'border-orange-500 text-orange-300' : ''}`}
               >
-                <option value="all">🏷️ Tous genres</option>
+                <option value="all">{language === 'en' ? '🏷️ All Genres' : '🏷️ Tous genres'}</option>
                 {filterOptions.genres.map(g => <option key={g} value={g}>{g}</option>)}
               </select>
               <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
@@ -312,7 +312,7 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
               <StatsChart title="Jeux par Année de Sortie" data={userStats.yearlyStats} type="line" color="blue" />
             )}
             {Object.keys(userStats.genreBreakdown).length > 0 && (
-              <StatsChart title="Répartition par Genre" data={userStats.genreBreakdown} type="pie" color="green" />
+              <StatsChart title={language === 'en' ? 'Genre Breakdown' : 'Répartition par Genre'} data={userStats.genreBreakdown} type="pie" color="green" />
             )}
           </div>
 
@@ -321,14 +321,14 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
               <StatsChart title="Plateformes Utilisées" data={userStats.platformBreakdown} type="bar" color="orange" />
               <div className="bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-700">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-white">Résumé</h3>
+                  <h3 className="text-lg font-semibold text-white">{language === 'en' ? 'Summary' : 'Résumé'}</h3>
                   <TrendingUp className="h-5 w-5 text-gray-400" />
                 </div>
                 <div className="space-y-3">
-                  <div className="flex justify-between"><span className="text-gray-300">Total des jeux</span><span className="text-white font-medium">{ratedGames.length}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-300">Genres différents</span><span className="text-white font-medium">{Object.keys(userStats.genreBreakdown).length}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-300">{language === 'en' ? 'Total Games' : 'Total des jeux'}</span><span className="text-white font-medium">{ratedGames.length}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-300">{language === 'en' ? 'Different Genres' : 'Genres différents'}</span><span className="text-white font-medium">{Object.keys(userStats.genreBreakdown).length}</span></div>
                   <div className="flex justify-between"><span className="text-gray-300">Plateformes utilisées</span><span className="text-white font-medium">{Object.keys(userStats.platformBreakdown).length}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-300">Note moyenne</span><span className="text-white font-medium">{userStats.averageRating}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-300">{language === 'en' ? 'Avg. Rating' : 'Note moyenne'}</span><span className="text-white font-medium">{userStats.averageRating}</span></div>
                 </div>
               </div>
             </div>
@@ -337,7 +337,7 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-700">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-white">Distribution des notes</h3>
+                <h3 className="text-lg font-semibold text-white">{language === 'en' ? 'Rating Distribution' : 'Distribution des notes'}</h3>
                 <BarChart3 className="h-5 w-5 text-gray-400" />
               </div>
               <div className="space-y-2">
@@ -360,7 +360,7 @@ const JournalView: React.FC<JournalViewProps> = ({ onUserClick }) => {
 
             <div className="bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-700">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-white">Répartition par statut</h3>
+                <h3 className="text-lg font-semibold text-white">{t('journal.gameStatus')}</h3>
                 <BookOpen className="h-5 w-5 text-gray-400" />
               </div>
               <div className="space-y-3">

@@ -1074,7 +1074,7 @@ setTempReview(reviewVal);
             </div>
             {(g?.name || game.title || game.name) && (
               <p className="text-sm text-gray-400">
-                Tout sur {g?.name || game.title || game.name} : notes, critiques, discussions et recommandations.
+                {language === 'en' ? `Everything about ${g?.name || game.title || game.name}: ratings, reviews, discussions and recommendations.` : `Tout sur ${g?.name || game.title || game.name} : notes, critiques, discussions et recommandations.`}
               </p>
             )}
           </div>
@@ -1217,11 +1217,11 @@ setTempReview(reviewVal);
                         <p className="text-white font-semibold">{String(typeof platforms === 'string' ? platforms : 'Inconnues')}</p>
                       </div>
                       <div className="sm:col-span-2">
-                        <p className="text-gray-400 text-xs">🏷️ Catégories principales</p>
+                        <p className="text-gray-400 text-xs">{language === 'fr' ? '🏷️ Catégories principales' : '🏷️ Main Categories'}</p>
                         <p className="text-white font-semibold">{String(typeof genres === 'string' ? genres : 'Inconnue')}</p>
                       </div>
                       <div className="sm:col-span-2">
-                        <p className="text-gray-400 text-xs">🛒 Où acheter</p>
+                        <p className="text-gray-400 text-xs">{language === 'fr' ? '🛒 Où acheter' : '🛒 Where to Buy'}</p>
                         <BuyLinks
                           buyLinks={buyLinks}
                           stores={storesList}
@@ -1525,7 +1525,7 @@ className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border 
                 {similarGames.length > 0 && (
                   <div className="mt-6 bg-gray-700/30 rounded-lg p-4">
                     <h2 className="text-xl font-bold text-white mb-4">
-                      Jeux similaires à "{g?.name || game.title || game.name}"
+                      {language === 'en' ? `Similar to "${g?.name || game.title || game.name}"` : `Jeux similaires à "${g?.name || game.title || game.name}"`}
                     </h2>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
                       {similarGames.map((similarGame) => (

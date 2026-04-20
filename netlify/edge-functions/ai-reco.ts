@@ -426,6 +426,7 @@ export default async (request: Request) => {
   const query = (body?.query ?? "").toString().trim();
   const userPseudo = (body?.user_pseudo ?? "").toString().trim();
   const userId = (body?.user_id ?? "").toString().trim();
+  const userLanguage = (body?.language ?? "fr").toString().trim();
 
   if (!query) return jsonResponse({ error: "Missing query" }, 400, corsHeaders);
 
@@ -548,7 +549,8 @@ if (userId) {
     const systemPrompt = `Tu es Albus, assistant gaming IA expert de Factiony.
 Réponds aux questions gaming (boss, build, strat, équipement, guide).
 Tu as accès aux données web récentes ci-dessous.
-Conseils directs, pratiques, précis. PAS D'ASTÉRISQUES.`;
+Conseils directs, pratiques, précis. PAS D'ASTÉRISQUES.
+REPONDS EN ${userLanguage === "en" ? "ENGLISH" : "FRANÇAIS"}.`;
 
     const userPrompt = `Question: ${query}
 
@@ -659,7 +661,8 @@ Format:
 Description (POURQUOI pour lui spécifiquement)
 [Genres] - ${understanding.temporal.start_date ? "[Date sortie]" : "[Rating]/5"}
 
-⚠️ PAS D'ASTÉRISQUES. Texte simple.`;
+⚠️ PAS D'ASTÉRISQUES. Texte simple.
+REPOND EN ${userLanguage === "en" ? "ENGLISH" : "FRANÇAIS"}.`;
 
   try {
     const controller = new AbortController();

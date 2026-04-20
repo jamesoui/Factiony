@@ -7,9 +7,11 @@ import FriendsActivitySection from "../components/FriendsActivitySection";
 import GameDetailModal from "../components/GameDetailModal";
 import AdBanner from "../components/ads/AdBanner";
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 
 export default function Discover() {
   const { user } = useAuth();
+  const { language } = useLanguage();
   const [topRated, setTopRated] = useState<Game[] | null>(null);
   const [anticipated, setAnticipated] = useState<Game[] | null>(null);
   const [trending, setTrending] = useState<Game[] | null>(null);
@@ -132,7 +134,7 @@ export default function Discover() {
   return (
     <div className="p-6 bg-gray-900 min-h-screen space-y-10">
       <section>
-        <h1 className="text-xl font-bold mb-4 text-white">📈 Les jeux en tendance</h1>
+        <h1 className="text-xl font-bold mb-4 text-white">{language === 'en' ? '📈 Trending Games' : '📈 Les jeux en tendance'}</h1>
         {trending === null ? (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             {Array.from({ length: 10 }).map((_, i) => (
@@ -151,7 +153,7 @@ export default function Discover() {
       </section>
 
       <section>
-        <h1 className="text-xl font-bold mb-4 text-white">🎮 Les jeux les mieux notés</h1>
+        <h1 className="text-xl font-bold mb-4 text-white">{language === 'en' ? '🎮 Top Rated Games' : '🎮 Les jeux les mieux notés'}</h1>
         <p className="text-sm text-gray-400 mb-4">
           Classement basé sur les notes de la communauté Factiony et Metacritic
         </p>
@@ -181,7 +183,7 @@ export default function Discover() {
       <FriendsActivitySection onGameClick={handleGameClick} />
 
       <section>
-        <h1 className="text-xl font-bold mb-4 text-white">🔥 Les jeux les plus attendus</h1>
+        <h1 className="text-xl font-bold mb-4 text-white">{language === 'en' ? '🔥 Most Anticipated' : '🔥 Les jeux les plus attendus'}</h1>
         {anticipated === null ? (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             {Array.from({ length: 10 }).map((_, i) => (

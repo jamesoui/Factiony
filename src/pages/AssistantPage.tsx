@@ -210,11 +210,12 @@ export default function AssistantPage() {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          query: finalQuery,
-          user_pseudo: userPseudo,
-          user_id: user?.id || '',
-          tier: tier,
-        }),
+  query: finalQuery,
+  user_pseudo: userPseudo,
+  user_id: user?.id || '',
+  tier: tier,
+  language: language,
+}),
       });
 
       if (!res.ok) {
@@ -313,7 +314,7 @@ export default function AssistantPage() {
               className="w-full flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg font-semibold transition"
             >
               <Plus size={18} />
-              Nouvelle conv.
+              {language === 'en' ? 'New conv.' : 'Nouvelle conv.'}
             </button>
           </div>
 

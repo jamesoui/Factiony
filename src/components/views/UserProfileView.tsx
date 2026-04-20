@@ -463,13 +463,13 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({
           <div className="bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-700 text-center">
             <Trophy className="h-8 w-8 text-orange-500 mx-auto mb-3" />
             <div className="text-2xl font-bold text-white mb-1">{userStats.totalGames}</div>
-            <div className="text-sm text-gray-400">Jeux notés</div>
+            <div className="text-sm text-gray-400">{language === 'en' ? 'Games Rated' : 'Jeux notés'}</div>
           </div>
 
           <div className="bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-700 text-center">
             <Star className="h-8 w-8 text-yellow-500 mx-auto mb-3" />
             <div className="text-2xl font-bold text-white mb-1">{userStats.averageRating.toFixed(1)}</div>
-            <div className="text-sm text-gray-400">Note moyenne</div>
+            <div className="text-sm text-gray-400">{language === 'en' ? 'Avg. Rating' : 'Note moyenne'}</div>
           </div>
 
           <div className="bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-700 text-center">

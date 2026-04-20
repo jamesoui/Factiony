@@ -24,7 +24,7 @@ interface DiscoverViewProps {
 }
 
 const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -323,7 +323,7 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
         </div>
       ) : trendingGames.length > 0 ? (
         <HorizontalGameSection
-          title="📈 Les jeux en tendance"
+          title="{language === 'en' ? '📈 Trending Games' : '📈 Les jeux en tendance'}"
           games={trendingGames}
           onGameClick={handleGameClick}
         />
@@ -335,7 +335,7 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
         </div>
       ) : topRatedGames.length > 0 ? (
         <HorizontalGameSection
-          title="🎮 Les jeux les mieux notés"
+          title="{language === 'en' ? '🎮 Top Rated Games' : '🎮 Les jeux les mieux notés'}"
           games={topRatedGames}
           onGameClick={handleGameClick}
         />
@@ -360,7 +360,7 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
         </div>
       ) : anticipatedGames.length > 0 ? (
         <HorizontalGameSection
-          title="🔥 Les jeux les plus attendus"
+          title="{language === 'en' ? '🔥 Most Anticipated' : '🔥 Les jeux les plus attendus'}"
           games={anticipatedGames}
           onGameClick={handleGameClick}
         />

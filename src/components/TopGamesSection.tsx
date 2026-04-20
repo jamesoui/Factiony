@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLanguage } from '../contexts/LanguageContext';
 import { Flame } from 'lucide-react';
 import { getTopGamesCached, TopGameWithCover, preloadTopCovers } from '../lib/api/topGamesCovers';
 import { SimpleGameCard } from './SimpleGameCard';
@@ -10,6 +11,7 @@ interface TopGamesSectionProps {
 const TopGamesSection: React.FC<TopGamesSectionProps> = ({ onGameClick }) => {
   const [games, setGames] = useState<TopGameWithCover[]>([]);
   const [loading, setLoading] = useState(true);
+  const { language } = useLanguage();
 
   useEffect(() => {
     const loadTopGames = async () => {
@@ -44,7 +46,9 @@ const TopGamesSection: React.FC<TopGamesSectionProps> = ({ onGameClick }) => {
       <div className="mb-8">
         <div className="flex items-center space-x-2 mb-4">
           <Flame className="h-6 w-6 text-orange-500" />
-          <h2 className="text-2xl font-bold text-white">Les jeux les plus joués</h2>
+          <h2 className="text-2xl font-bold text-white">
+            {language === 'en' ? 'Most Played Games' : 'Les jeux les plus joués'}
+          </h2>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {Array.from({ length: 10 }).map((_, i) => (
@@ -63,7 +67,9 @@ const TopGamesSection: React.FC<TopGamesSectionProps> = ({ onGameClick }) => {
     <div className="mb-8">
       <div className="flex items-center space-x-2 mb-4">
         <Flame className="h-6 w-6 text-orange-500" />
-        <h2 className="text-2xl font-bold text-white">Les jeux les plus joués</h2>
+        <h2 className="text-2xl font-bold text-white">
+          {language === 'en' ? 'Most Played Games' : 'Les jeux les plus joués'}
+        </h2>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">

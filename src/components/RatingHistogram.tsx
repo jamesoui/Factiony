@@ -3,6 +3,7 @@
 // Dépendances : aucune (CSS Tailwind + variables CSS existantes de Factiony)
 
 import { useEffect, useState } from "react";
+import { useLanguage } from "../contexts/LanguageContext";
 import { supabase } from "../lib/supabaseClient"; // adapte le chemin si besoin
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -22,6 +23,7 @@ const STAR_LABELS = [1, 2, 3, 4, 5];
 // ─── Composant ────────────────────────────────────────────────────────────────
 
 export default function RatingHistogram({ userId }: RatingHistogramProps) {
+  const { language } = useLanguage();
   const [counts, setCounts] = useState<Record<number, number>>({});
   const [loading, setLoading] = useState(true);
 
@@ -80,7 +82,7 @@ export default function RatingHistogram({ userId }: RatingHistogramProps) {
 
   return (
     <section className="rating-histogram-section">
-      <h3 className="rating-histogram-section__title">Distribution des notes</h3>
+      <h3 className="rating-histogram-section__title">{language === 'en' ? 'Rating Distribution' : 'Distribution des notes'}</h3>
 
       <div className="rating-histogram" role="img" aria-label="Histogramme des notes">
         {RATING_STEPS.map((step) => {
