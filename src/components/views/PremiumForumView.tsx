@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Crown, MessageSquare, ThumbsUp, MessageCircle, TrendingUp, Clock, Filter, ChevronRight, Search, Plus, Send, X, CornerDownRight } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
+import { useLanguage } from '../../contexts/LanguageContext'
 import { supabase } from '../../lib/supabaseClient'
 
 interface ForumCategory {
@@ -59,6 +60,7 @@ const Avatar: React.FC<{ src?: string; name: string; size?: string }> = ({ src, 
 
 const PremiumForumView: React.FC = () => {
   const { user } = useAuth()
+  const { language } = useLanguage()
   const [sortBy, setSortBy] = useState<'recent' | 'popular'>('recent')
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
@@ -74,9 +76,9 @@ const PremiumForumView: React.FC = () => {
   const [submitting, setSubmitting] = useState(false)
 
   const categories: ForumCategory[] = [
-    { id: 'general', name: 'Discussion Générale', description: 'Parlez de tout et de rien avec la communauté Premium', icon: MessageSquare },
-    { id: 'recommendations', name: 'Recommandations Exclusives', description: 'Partagez vos pépites et découvertes gaming', icon: TrendingUp },
-    { id: 'events', name: 'Événements & Rencontres', description: 'Organisez des sessions de jeu entre membres Premium', icon: MessageCircle }
+    { id: 'general', name: language === 'en' ? 'General Discussion' : 'Discussion Générale', description: language === 'en' ? 'Talk about anything with the Premium community' : 'Parlez de tout et de rien avec la communauté Premium', icon: MessageSquare },
+    { id: 'recommendations', name: language === 'en' ? 'Exclusive Recommendations' : 'Recommandations Exclusives', description: language === 'en' ? 'Share your gaming gems and discoveries' : 'Partagez vos pépites et découvertes gaming', icon: TrendingUp },
+    { id: 'events', name: language === 'en' ? 'Events & Meetups' : 'Événements & Rencontres', description: language === 'en' ? 'Organize gaming sessions between Premium members' : 'Organisez des sessions de jeu entre membres Premium', icon: MessageCircle }
   ]
 
   useEffect(() => {
@@ -321,7 +323,7 @@ const PremiumForumView: React.FC = () => {
         <h1 className="text-3xl font-bold text-white">Forum Premium</h1>
         <button onClick={() => setShowCreateThread(true)} className="flex items-center space-x-2 px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-medium transition-colors">
           <Plus className="h-5 w-5" />
-          <span>Nouvelle discussion</span>
+          <span>{language === 'en' ? 'New Discussion' : 'Nouvelle discussion'}</span>
         </button>
       </div>
 
@@ -359,7 +361,7 @@ const PremiumForumView: React.FC = () => {
           <div className="flex items-center space-x-2">
             <Filter className="h-5 w-5 text-gray-400" />
             <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-yellow-500">
-              <option value="recent">Plus récents</option>
+              <option value="recent">{language === 'en' ? 'Most Recent' : 'Plus récents'}</option>
               <option value="popular">Plus populaires</option>
             </select>
           </div>
@@ -413,7 +415,7 @@ const PremiumForumView: React.FC = () => {
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-800 rounded-xl max-w-2xl w-full p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-2xl font-bold text-white">Nouvelle discussion</h3>
+              <h3 className="text-2xl font-bold text-white">{language === 'en' ? 'New Discussion' : 'Nouvelle discussion'}</h3>
               <button onClick={() => setShowCreateThread(false)} className="text-gray-400 hover:text-white"><X className="h-6 w-6" /></button>
             </div>
             <div className="space-y-4">

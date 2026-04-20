@@ -1195,21 +1195,21 @@ setTempReview(reviewVal);
                         </p>
                       </div>
                       <div>
-                        <p className="text-gray-400 text-xs">⭐ Note Factiony</p>
+                        <p className="text-gray-400 text-xs">⭐ {language === 'fr' ? 'Note Factiony' : 'Factiony Rating'}</p>
                         <p className="text-white font-semibold">
-                          {factionyAvgRating !== null ? `${factionyAvgRating.toFixed(1)}/5` : 'Pas encore noté'}
+                          {factionyAvgRating !== null ? `${factionyAvgRating.toFixed(1)}/5` : (language === 'fr' ? 'Pas encore noté' : 'Not yet rated')}
                         </p>
                       </div>
                       <div>
-                        <p className="text-gray-400 text-xs">⏱️ Durée moyenne</p>
+                        <p className="text-gray-400 text-xs">⏱️ {language === 'fr' ? 'Durée moyenne' : 'Avg. Playtime'}</p>
                         <p className="text-white font-semibold">{String(playtime)}</p>
                       </div>
                       <div>
-                        <p className="text-gray-400 text-xs">🏢 Studio principal</p>
+                        <p className="text-gray-400 text-xs">🏢 {language === 'fr' ? 'Studio principal' : 'Main Studio'}</p>
                         <p className="text-white font-semibold">{String(studio)}</p>
                       </div>
                       <div className="sm:col-span-2">
-                        <p className="text-gray-400 text-xs">📆 Date de sortie</p>
+                        <p className="text-gray-400 text-xs">📆 {language === 'fr' ? 'Date de sortie' : 'Release Date'}</p>
                         <p className="text-white font-semibold">{String(releaseDate)}</p>
                       </div>
                       <div className="sm:col-span-2">

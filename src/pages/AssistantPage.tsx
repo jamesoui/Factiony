@@ -40,8 +40,12 @@ export default function AssistantPage() {
     {
       role: 'assistant',
       content: user
-        ? `Salut ${firstName} 👋\n\nOn joue à quoi aujourd'hui ?\n\nJe peux te recommander des jeux basé sur tes goûts Factiony, répondre à tes questions gaming (boss, builds, strats), et utiliser la sagesse de notre communauté !`
-        : `Salut 👋\n\nJe suis Albus, l'Assistant IA de Factiony.\n\nJe peux :\n• Te recommander des jeux\n• Répondre à tes questions gaming (boss, builds, strats)\n• Utiliser ton historique pour des conseils perso\n\nConnecte-toi pour des recos personnalisées !`,
+        ? (language === 'en'
+    ? `Hey ${firstName} 👋\n\nWhat are we playing today?\n\nI can recommend games based on your Factiony taste, answer your gaming questions (bosses, builds, strats), and tap into our community's wisdom!`
+    : `Salut ${firstName} 👋\n\nOn joue à quoi aujourd'hui ?\n\nJe peux te recommander des jeux basé sur tes goûts Factiony, répondre à tes questions gaming (boss, builds, strats), et utiliser la sagesse de notre communauté !`)
+: (language === 'en'
+    ? `Hey 👋\n\nI'm Albus, Factiony's AI Assistant.\n\nI can:\n• Recommend games\n• Answer your gaming questions (bosses, builds, strats)\n• Use your history for personalized advice\n\nSign in for personalized recommendations!`
+    : `Salut 👋\n\nJe suis Albus, l'Assistant IA de Factiony.\n\nJe peux :\n• Te recommander des jeux\n• Répondre à tes questions gaming (boss, builds, strats)\n• Utiliser ton historique pour des conseils perso\n\nConnecte-toi pour des recos personnalisées !`),
     },
   ]);
 
@@ -166,7 +170,13 @@ export default function AssistantPage() {
     setMessages([
       {
         role: 'assistant',
-        content: `Salut ${firstName} 👋\n\nOn joue à quoi aujourd'hui ?\n\nJe peux te recommander des jeux basé sur tes goûts Factiony, répondre à tes questions gaming (boss, builds, strats), et utiliser la sagesse de notre communauté !`,
+        content: user
+        ? (language === 'en'
+    ? `Hey ${firstName} 👋\n\nWhat are we playing today?\n\nI can recommend games based on your Factiony taste, answer your gaming questions (bosses, builds, strats), and tap into our community's wisdom!`
+    : `Salut ${firstName} 👋\n\nOn joue à quoi aujourd'hui ?\n\nJe peux te recommander des jeux basé sur tes goûts Factiony, répondre à tes questions gaming (boss, builds, strats), et utiliser la sagesse de notre communauté !`)
+: (language === 'en'
+    ? `Hey 👋\n\nI'm Albus, Factiony's AI Assistant.\n\nI can:\n• Recommend games\n• Answer your gaming questions (bosses, builds, strats)\n• Use your history for personalized advice\n\nSign in for personalized recommendations!`
+    : `Salut 👋\n\nJe suis Albus, l'Assistant IA de Factiony.\n\nJe peux :\n• Te recommander des jeux\n• Répondre à tes questions gaming (boss, builds, strats)\n• Utiliser ton historique pour des conseils perso\n\nConnecte-toi pour des recos personnalisées !`),
       },
     ]);
     setError(null);
@@ -322,7 +332,7 @@ export default function AssistantPage() {
           )}
 
           <div className="flex-1 overflow-y-auto p-4 space-y-2">
-            <p className="text-xs text-gray-400 font-semibold mb-3">Historique</p>
+            <p className="text-xs text-gray-400 font-semibold mb-3">{language === 'en' ? 'History' : 'Historique'}</p>
             {conversations.length === 0 ? (
               <p className="text-xs text-gray-500">Aucune conversation</p>
             ) : (
@@ -357,8 +367,8 @@ export default function AssistantPage() {
             <div className="flex items-center gap-3">
               <span className="bg-orange-600 text-white px-2 py-1 rounded text-xs font-bold">Albus</span>
               <div>
-                <h1 className="text-2xl font-bold text-white">Le Meilleur Assistant Gaming IA</h1>
-                <p className="text-sm text-gray-400">Recommandations, guides et conseils personnalisés</p>
+                <h1 className="text-2xl font-bold text-white">{language === 'en' ? 'The Best AI Gaming Assistant' : 'Le Meilleur Assistant Gaming IA'}</h1>
+                <p className="text-sm text-gray-400">{language === 'en' ? 'Personalized recommendations, guides and tips' : 'Recommandations, guides et conseils personnalisés'}</p>
               </div>
             </div>
             {user && (
