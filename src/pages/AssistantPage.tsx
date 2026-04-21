@@ -452,7 +452,7 @@ export default function AssistantPage() {
                 <div className="mb-4 flex justify-start">
                   <div className="flex items-center gap-2 text-gray-400 text-sm">
                     <div className="animate-spin">⏳</div>
-                    <span>Albus réfléchit…</span>
+                    <span>{language === 'en' ? 'Albus is thinking…' : 'Albus réfléchit…'}</span>
                   </div>
                 </div>
               )}
@@ -474,7 +474,7 @@ export default function AssistantPage() {
                     sendMessage();
                   }
                 }}
-                placeholder='Ex: "Un jeu coop sur PS5" ou "Comment battre Malenia?"'
+                placeholder={language === 'en' ? 'Ex: "A coop game on PS5" or "How to beat Malenia?"' : 'Ex: "Un jeu coop sur PS5" ou "Comment battre Malenia?"'}
                 className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 transition text-sm"
                 disabled={loading}
               />
