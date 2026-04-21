@@ -46,10 +46,11 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
     return platforms.map((p: any) => (typeof p === 'string' ? p : p?.platform?.name || p?.name)).filter(Boolean);
   };
 
-  async function fetchRandomReleased() {
+  async function fetchRandomReleased(signal?: AbortSignal) {
     const randomPage = Math.floor(Math.random() * 50) + 1;
     const res = await fetch(`${API_URL}/games?page_size=10&page=${randomPage}`, {
       headers: { "x-factiony-key": FACTIONY_KEY },
+      signal,
     });
     const json = await res.json();
     return (json.results || [])
@@ -71,10 +72,11 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
       }));
   }
 
-  async function fetchRandomUpcoming() {
+  async function fetchRandomUpcoming(signal?: AbortSignal) {
     const randomPage = Math.floor(Math.random() * 50) + 1;
     const res = await fetch(`${API_URL}/games?page_size=10&page=${randomPage}`, {
       headers: { "x-factiony-key": FACTIONY_KEY },
+      signal,
     });
     const json = await res.json();
     return (json.results || [])
@@ -102,115 +104,112 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
   }
 
   useEffect(() => {
+    // ← FIX : AbortController annule toutes les requêtes si on navigue avant la fin
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    async function loadTrendingGames() {
+      try {
+        let allStats: any[] = [];
+
+        const trendingStats = await getTrendingGames(10);
+        if (signal.aborted) return;
+        allStats = [...trendingStats];
+
+        if (allStats.length < 10) {
+          const neededCount = 10 - allStats.length;
+          const recentStats = await getRecentlyRatedGames(neededCount + 5);
+          if (signal.aborted) return;
+          const existingIds = new Set(allStats.map(s => s.game_id));
+          const newRecent = recentStats.filter(s => !existingIds.has(s.game_id));
+          allStats = [...allStats, ...newRecent.slice(0, neededCount)];
+        }
+
+        if (allStats.length < 10) {
+          const neededCount = 10 - allStats.length;
+          const topRatedStats = await getTopRatedGames(neededCount + 5);
+          if (signal.aborted) return;
+          const existingIds = new Set(allStats.map(s => s.game_id));
+          const newTopRated = topRatedStats.filter(s => !existingIds.has(s.game_id));
+          allStats = [...allStats, ...newTopRated.slice(0, neededCount)];
+        }
+
+        if (allStats.length > 0) {
+          const gameIds = allStats.map(stat => stat.game_id);
+          const games = await fetchGamesByIds(gameIds);
+          if (signal.aborted) return;
+
+          if (games.length > 0) {
+            const gamesMap = new Map(games.map((g: any) => [g.id.toString(), g]));
+            const statsMap = new Map(allStats.map(stat => [stat.game_id, stat.average_rating]));
+            const trendingMapped = gameIds
+              .map(id => gamesMap.get(id))
+              .filter(Boolean)
+              .map((game: any) => ({
+                id: game.id.toString(),
+                title: game.name,
+                coverUrl: game.background_image || game.cover_url || '/placeholder.jpg',
+                rating: statsMap.get(game.id.toString()) || 0,
+                releaseDate: game.released || '',
+                genres: transformGenres(game.genres),
+                platforms: transformPlatforms(game.platforms),
+                developer: game.developers?.[0] || 'Unknown',
+                publisher: game.publishers?.[0] || 'Unknown',
+                description: game.description || '',
+                metacritic: game.metacritic,
+                playtime: game.playtime,
+                esrbRating: game.esrb_rating
+              }));
+            setTrendingGames(trendingMapped);
+            setTrendingLoading(false);
+            return;
+          }
+        }
+
+        logger.log("Chargement des jeux populaires par défaut...");
+        const popularGames = await searchPopularGames(10);
+        if (signal.aborted) return;
+
+        if (popularGames.length > 0) {
+          const trendingMapped = popularGames.map((game: any) => ({
+            id: game.id.toString(),
+            title: game.name,
+            coverUrl: game.background_image || game.cover_url || '/placeholder.jpg',
+            rating: game.metacritic ? parseFloat((game.metacritic / 20).toFixed(2)) : 0,
+            releaseDate: game.released || '',
+            genres: transformGenres(game.genres),
+            platforms: transformPlatforms(game.platforms),
+            developer: game.developers?.[0] || 'Unknown',
+            publisher: game.publishers?.[0] || 'Unknown',
+            description: game.description || '',
+            metacritic: game.metacritic,
+            playtime: game.playtime,
+            esrbRating: game.esrb_rating
+          }));
+          setTrendingGames(trendingMapped);
+        }
+      } catch (error: any) {
+        if (error.name === 'AbortError') return; // Navigation → on ignore silencieusement
+        console.error("Erreur lors du chargement des jeux en tendance:", error);
+      } finally {
+        if (!signal.aborted) setTrendingLoading(false);
+      }
+    }
+
     async function loadData() {
       setLoading(true);
       setTrendingLoading(true);
 
-      async function loadTrendingGames() {
-        try {
-          let allStats: any[] = [];
-
-          // 1. Obtenir les jeux en tendance
-          const trendingStats = await getTrendingGames(10);
-          allStats = [...trendingStats];
-
-          // 2. Si moins de 10, compléter avec les jeux récemment notés
-          if (allStats.length < 10) {
-            const neededCount = 10 - allStats.length;
-            const recentStats = await getRecentlyRatedGames(neededCount + 5);
-
-            // Filtrer pour éviter les doublons
-            const existingIds = new Set(allStats.map(s => s.game_id));
-            const newRecent = recentStats.filter(s => !existingIds.has(s.game_id));
-            allStats = [...allStats, ...newRecent.slice(0, neededCount)];
-          }
-
-          // 3. Si toujours moins de 10, compléter avec les jeux les mieux notés
-          if (allStats.length < 10) {
-            const neededCount = 10 - allStats.length;
-            const topRatedStats = await getTopRatedGames(neededCount + 5);
-
-            // Filtrer pour éviter les doublons
-            const existingIds = new Set(allStats.map(s => s.game_id));
-            const newTopRated = topRatedStats.filter(s => !existingIds.has(s.game_id));
-            allStats = [...allStats, ...newTopRated.slice(0, neededCount)];
-          }
-
-          // 4. Si on a des stats, charger les détails des jeux
-          if (allStats.length > 0) {
-            const gameIds = allStats.map(stat => stat.game_id);
-            const games = await fetchGamesByIds(gameIds);
-
-            if (games.length > 0) {
-              const gamesMap = new Map(games.map((g: any) => [g.id.toString(), g]));
-              const statsMap = new Map(allStats.map(stat => [stat.game_id, stat.average_rating]));
-              const trendingMapped = gameIds
-                .map(id => gamesMap.get(id))
-                .filter(Boolean)
-                .map((game: any) => ({
-                  id: game.id.toString(),
-                  title: game.name,
-                  coverUrl: game.background_image || game.cover_url || '/placeholder.jpg',
-                  rating: statsMap.get(game.id.toString()) || 0,
-                  releaseDate: game.released || '',
-                  genres: transformGenres(game.genres),
-                  platforms: transformPlatforms(game.platforms),
-                  developer: game.developers?.[0] || 'Unknown',
-                  publisher: game.publishers?.[0] || 'Unknown',
-                  description: game.description || '',
-                  metacritic: game.metacritic,
-                  playtime: game.playtime,
-                  esrbRating: game.esrb_rating
-                }));
-              setTrendingGames(trendingMapped);
-              setTrendingLoading(false);
-              return;
-            }
-          }
-
-          // 5. Fallback : si aucun jeu noté, utiliser les jeux populaires de RAWG
-          logger.log("Chargement des jeux populaires par défaut...");
-          const popularGames = await searchPopularGames(10);
-          logger.log("Jeux populaires chargés:", popularGames.length);
-
-          if (popularGames.length > 0) {
-            const trendingMapped = popularGames.map((game: any) => ({
-              id: game.id.toString(),
-              title: game.name,
-              coverUrl: game.background_image || game.cover_url || '/placeholder.jpg',
-              rating: game.metacritic ? parseFloat((game.metacritic / 20).toFixed(2)) : 0,
-              releaseDate: game.released || '',
-              genres: transformGenres(game.genres),
-              platforms: transformPlatforms(game.platforms),
-              developer: game.developers?.[0] || 'Unknown',
-              publisher: game.publishers?.[0] || 'Unknown',
-              description: game.description || '',
-              metacritic: game.metacritic,
-              playtime: game.playtime,
-              esrbRating: game.esrb_rating
-            }));
-            setTrendingGames(trendingMapped);
-          }
-        } catch (error) {
-          console.error("Erreur lors du chargement des jeux en tendance:", error);
-        } finally {
-          setTrendingLoading(false);
-        }
-      }
-
+      // loadTrendingGames tourne en parallèle mais est maintenant contrôlé
       loadTrendingGames();
 
       try {
         const topRatedGamesData = await getTopRatedGamesWithCompositeScore(20);
+        if (signal.aborted) return;
 
         if (!topRatedGamesData || topRatedGamesData.length === 0) {
-          logger.log('No top rated games from composite score view, setting empty array');
           setTopRatedGames([]);
         } else {
-          logger.log('Top rated games (composite score):', topRatedGamesData.length, 'games');
-          logger.log('First game composite_score:', topRatedGamesData[0]?.composite_score);
-          logger.log('Last game composite_score:', topRatedGamesData[topRatedGamesData.length - 1]?.composite_score);
-
           const topRatedMapped = topRatedGamesData.map((game: any) => ({
             id: game.id.toString(),
             title: game.name,
@@ -226,17 +225,17 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
             playtime: game.playtime,
             esrbRating: game.esrb_rating
           }));
-
           setTopRatedGames(topRatedMapped);
         }
 
         const mostFollowedGames = await getMostFollowedUnreleasedGames(15);
-        logger.log('Most followed unreleased games:', mostFollowedGames);
+        if (signal.aborted) return;
 
         if (mostFollowedGames.length > 0) {
           const gameIds = mostFollowedGames.map(g => g.game_id);
           const locale = localStorage.getItem('language') || 'fr';
           const gamesData = await gameDataCache.getGames(gameIds, locale);
+          if (signal.aborted) return;
 
           const anticipatedMapped = gameIds
             .map(id => gamesData[id])
@@ -256,20 +255,24 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
               playtime: game.playtime,
               esrbRating: game.esrb_rating
             }));
-
           setAnticipatedGames(anticipatedMapped);
         } else {
-          const fallbackGames = await fetchRandomUpcoming();
+          const fallbackGames = await fetchRandomUpcoming(signal);
+          if (signal.aborted) return;
           setAnticipatedGames(fallbackGames);
         }
-      } catch (e) {
+      } catch (e: any) {
+        if (e.name === 'AbortError') return; // Navigation → on ignore silencieusement
         console.error("Error loading discover:", e);
       } finally {
-        setLoading(false);
+        if (!signal.aborted) setLoading(false);
       }
     }
 
     loadData();
+
+    // ← Cleanup : annule tout si on quitte la page avant la fin
+    return () => controller.abort();
   }, []);
 
   const handleGameClick = (game: Game) => {
@@ -316,7 +319,7 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 bg-gray-900 min-h-screen space-y-10">
-       {!user && <HeroSection />}
+      {!user && <HeroSection />}
       {trendingLoading ? (
         <div className="flex items-center justify-center py-12">
           <Loader className="h-12 w-12 text-orange-500 animate-spin" />
@@ -345,7 +348,7 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
         </div>
       )}
 
-{!user?.isPremium && <AdBanner slot="5751553228" className="my-4" />}
+      {!user?.isPremium && <AdBanner slot="5751553228" className="my-4" />}
 
       {user && (
         <FriendsActivitySection
@@ -365,7 +368,6 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
           onGameClick={handleGameClick}
         />
       ) : null}
-
     </div>
   );
 };

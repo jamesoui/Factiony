@@ -82,11 +82,11 @@ export default function AssistantPage() {
       monthStart.setHours(0, 0, 0, 0);
 
       const { data } = await supabase
-        .from('token_usage')
-        .select('tokens_used')
-        .eq('user_id', user.id)
-        .gte('created_at', monthStart.toISOString())
-        .single();
+  .from('token_usage')
+  .select('tokens_used')
+  .eq('user_id', user.id)
+  .gte('created_at', monthStart.toISOString())
+  .maybeSingle();
 
       const tier = user.app_metadata?.tier === 'premium' ? 'premium' : 'free';
       const limit = tier === 'premium' ? 100000 : 15000;

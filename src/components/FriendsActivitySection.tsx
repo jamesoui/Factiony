@@ -14,25 +14,12 @@ import {
 import { gameToSlug } from '../utils/slugify';
 import { supabase } from '../lib/supabaseClient';
 
-interface FriendsActivitySectionProps {}
-
-async function resolveReviewId(activity: UserActivity): Promise<string | null> {
-  if (activity.activity_data?.review_id) return activity.activity_data.review_id;
-  try {
-    const { data } = await supabase
-      .from('game_ratings')
-      .select('id')
-      .eq('user_id', activity.user_id)
-      .eq('game_id', activity.game_id)
-      .not('review_text', 'is', null)
-      .maybeSingle();
-    return data?.id || null;
-  } catch {
-    return null;
-  }
+interface FriendsActivitySectionProps {
+  onGameClick?: (gameId: string) => void;
+  onUserClick?: (userId: string) => void;
 }
 
-const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = () => {
+const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = ({ onGameClick, onUserClick }) => {
   const { user } = useAuth();
   const { language } = useLanguage();
   const navigate = useNavigate();
@@ -41,34 +28,73 @@ const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadActivities();
-  }, [user, language]);
+    // FIX 1 : AbortController — annule tout si on navigue avant la fin
+    const controller = new AbortController();
+    const signal = controller.signal;
 
-  const loadActivities = async () => {
-    try {
-      setLoading(true);
-      if (!user) { setActivities([]); return; }
-      const data = await getFriendsActivities(15);
-      if (data.length > 0) {
-        const enrichedData = await enrichActivitiesWithGameData(data, language);
-        setActivities(enrichedData);
+    const loadActivities = async () => {
+      try {
+        setLoading(true);
+        if (!user) { setActivities([]); setLoading(false); return; }
 
-        // Résoudre les review_id pour toutes les activités
-        const resolved: Record<string, string | null> = {};
-        await Promise.all(enrichedData.map(async (a) => {
-          resolved[a.id] = await resolveReviewId(a);
-        }));
-        setResolvedReviewIds(resolved);
-      } else {
-        setActivities([]);
+        const data = await getFriendsActivities(15);
+        if (signal.aborted) return;
+
+        if (data.length > 0) {
+          const enrichedData = await enrichActivitiesWithGameData(data, language);
+          if (signal.aborted) return;
+
+          setActivities(enrichedData);
+
+          // FIX 2 : batch query au lieu de N requêtes individuelles
+          const resolved: Record<string, string | null> = {};
+
+          // Ceux qui ont déjà le review_id dans activity_data
+          enrichedData
+            .filter(a => a.activity_data?.review_id)
+            .forEach(a => { resolved[a.id] = a.activity_data.review_id; });
+
+          // Ceux qui nécessitent un lookup — 1 seule requête
+          const needsLookup = enrichedData.filter(
+            a => !a.activity_data?.review_id &&
+            (a.activity_type === 'review' || a.activity_data?.review_text)
+          );
+
+          if (needsLookup.length > 0) {
+            const { data: ratingsData } = await supabase
+              .from('game_ratings')
+              .select('id, user_id, game_id')
+              .in('user_id', needsLookup.map(a => a.user_id))
+              .not('review_text', 'is', null);
+
+            if (!signal.aborted) {
+              needsLookup.forEach(a => {
+                const match = ratingsData?.find(
+                  r => r.user_id === a.user_id && String(r.game_id) === String(a.game_id)
+                );
+                resolved[a.id] = match?.id || null;
+              });
+            }
+          }
+
+          if (!signal.aborted) setResolvedReviewIds(resolved);
+        } else {
+          if (!signal.aborted) setActivities([]);
+        }
+      } catch (error: any) {
+        if (error.name === 'AbortError') return;
+        console.error('[FRIENDS_ACTIVITY] Error loading activities:', error);
+        if (!signal.aborted) setActivities([]);
+      } finally {
+        if (!signal.aborted) setLoading(false);
       }
-    } catch (error) {
-      console.error('[FRIENDS_ACTIVITY] Error loading activities:', error);
-      setActivities([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
+
+    loadActivities();
+
+    // FIX 1 : cleanup à la navigation
+    return () => controller.abort();
+  }, [user, language]);
 
   if (loading) {
     return (
