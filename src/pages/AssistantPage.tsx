@@ -19,7 +19,7 @@ type AiRecoResponse = {
   answer?: string;
   has_community_context?: boolean;
   personal_message?: string;
-  tokens_used?: number; // toujours un number maintenant
+  tokens_used?: number;
   error?: string;
   message?: string;
 };
@@ -60,20 +60,32 @@ export default function AssistantPage() {
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-  if (messages.length > 1 || loading) {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }
-}, [messages, loading]);
+  // FIX : AbortController persistant pour annuler les requêtes /api/ai-reco longues
+  const sendAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (user?.id) {
-      loadConversations();
-      loadTokenStatus();
+    if (messages.length > 1 || loading) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
+  }, [messages, loading]);
+
+  // FIX : cleanup de toutes les requêtes au démontage (navigation)
+  useEffect(() => {
+    let cancelled = false;
+
+    if (user?.id) {
+      loadConversations(() => cancelled);
+      loadTokenStatus(() => cancelled);
+    }
+
+    return () => {
+      cancelled = true;
+      // Annule toute requête /api/ai-reco en cours si on navigue
+      sendAbortRef.current?.abort();
+    };
   }, [user?.id]);
 
-  async function loadTokenStatus() {
+  async function loadTokenStatus(isCancelled?: () => boolean) {
     if (!user?.id) return;
 
     try {
@@ -82,11 +94,13 @@ export default function AssistantPage() {
       monthStart.setHours(0, 0, 0, 0);
 
       const { data } = await supabase
-  .from('token_usage')
-  .select('tokens_used')
-  .eq('user_id', user.id)
-  .gte('created_at', monthStart.toISOString())
-  .maybeSingle();
+        .from('token_usage')
+        .select('tokens_used')
+        .eq('user_id', user.id)
+        .gte('created_at', monthStart.toISOString())
+        .maybeSingle();
+
+      if (isCancelled?.()) return; // Navigation → on ignore
 
       const tier = user.app_metadata?.tier === 'premium' ? 'premium' : 'free';
       const limit = tier === 'premium' ? 100000 : 15000;
@@ -98,7 +112,7 @@ export default function AssistantPage() {
     }
   }
 
-  async function loadConversations() {
+  async function loadConversations(isCancelled?: () => boolean) {
     if (!user?.id) {
       setConversations([]);
       return;
@@ -110,6 +124,8 @@ export default function AssistantPage() {
         .eq('user_id', user.id)
         .order('updated_at', { ascending: false })
         .limit(10);
+
+      if (isCancelled?.()) return; // Navigation → on ignore
 
       if (error) {
         console.error('Error loading conversations:', error);
@@ -131,7 +147,7 @@ export default function AssistantPage() {
         .select('messages')
         .eq('user_id', user.id)
         .eq('session_id', sid)
-        .single();
+        .maybeSingle();
 
       if (error) {
         console.error('Error loading conversation:', error);
@@ -139,7 +155,7 @@ export default function AssistantPage() {
       }
 
       if (data?.messages) {
-        sessionIdRef.current = sid; // FIX: on reprend le sessionId de la conv chargée
+        sessionIdRef.current = sid;
         setMessages(JSON.parse(data.messages));
       }
     } catch (e) {
@@ -168,7 +184,7 @@ export default function AssistantPage() {
   }
 
   function startNewConversation() {
-    sessionIdRef.current = crypto.randomUUID(); // FIX: nouveau sessionId à chaque nouvelle conv
+    sessionIdRef.current = crypto.randomUUID();
     setMessages([
       {
         role: 'assistant',
@@ -199,6 +215,10 @@ export default function AssistantPage() {
     setMessages((prev) => [...prev, { role: 'user', content: finalQuery }]);
     setLoading(true);
 
+    // FIX : annule toute requête précédente et crée un nouveau controller
+    sendAbortRef.current?.abort();
+    sendAbortRef.current = new AbortController();
+
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
@@ -207,17 +227,18 @@ export default function AssistantPage() {
 
       const res = await fetch('/api/ai-reco', {
         method: 'POST',
+        signal: sendAbortRef.current.signal, // ← annulable
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-  query: finalQuery,
-  user_pseudo: userPseudo,
-  user_id: user?.id || '',
-  tier: tier,
-  language: language,
-}),
+          query: finalQuery,
+          user_pseudo: userPseudo,
+          user_id: user?.id || '',
+          tier: tier,
+          language: language,
+        }),
       });
 
       if (!res.ok) {
@@ -226,7 +247,6 @@ export default function AssistantPage() {
 
       const data: AiRecoResponse = await res.json();
 
-      // Check for token limit error
       if (data.error === 'token_limit_exceeded') {
         setError(data.message || 'Token limit reached');
         setMessages((prev) => [...prev, {
@@ -259,15 +279,12 @@ export default function AssistantPage() {
         setMessages((prev) => [...prev, { role: 'assistant', content: data.personal_message! }]);
       }
 
-      // FIX: guard typeof pour éviter [object Object] si jamais l'API retourne autre chose
       if (data.tokens_used && typeof data.tokens_used === 'number') {
         setTokenStatus(prev => prev ? { ...prev, used: prev.used + data.tokens_used! } : null);
       }
 
       if (user?.id) {
         try {
-          // FIX: on sauvegarde via setMessages callback pour avoir l'état complet
-          // incluant la réponse d'Albus
           setMessages(prev => {
             const fullMessages = prev;
             supabase
@@ -281,13 +298,16 @@ export default function AssistantPage() {
               })
               .then(() => loadConversations())
               .catch(err => console.error('Save error:', err));
-            return prev; // pas de mutation
+            return prev;
           });
         } catch (saveErr) {
           console.error('Save error:', saveErr);
         }
       }
     } catch (e: any) {
+      // FIX : si on a annulé (navigation), on ignore silencieusement
+      if (e.name === 'AbortError') return;
+
       console.error('Error:', e);
       const errorMsg = e.message || 'Erreur technique. Réessaie.';
       setError(errorMsg);
@@ -320,7 +340,6 @@ export default function AssistantPage() {
             </button>
           </div>
 
-          {/* Token Warning — visible uniquement à 75%+ */}
           {tokenStatus && isLowOnTokens && (
             <div className="p-3 border-b border-gray-700 bg-gray-750">
               <div className="flex items-center gap-2">
@@ -385,7 +404,6 @@ export default function AssistantPage() {
           </div>
         </div>
 
-        {/* Error Banner */}
         {error && (
           <div className="bg-red-900 border-b border-red-700 p-3">
             <div className="flex items-center gap-2 max-w-5xl mx-auto text-red-200">
@@ -395,7 +413,6 @@ export default function AssistantPage() {
           </div>
         )}
 
-        {/* Chat Area */}
         <div className="flex-1 overflow-y-auto p-4">
           <div className="max-w-3xl mx-auto">
             <div className="bg-gray-800 rounded-xl border border-gray-700 p-6 min-h-96">
@@ -461,7 +478,6 @@ export default function AssistantPage() {
           </div>
         </div>
 
-        {/* Input Area */}
         <div className="bg-gray-800 border-t border-gray-700 p-4">
           <div className="max-w-3xl mx-auto">
             <div className="flex gap-3">
