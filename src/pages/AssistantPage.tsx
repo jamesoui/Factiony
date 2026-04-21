@@ -60,7 +60,7 @@ export default function AssistantPage() {
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  // FIX : AbortController persistant pour annuler les requêtes /api/ai-reco longues
+  // AbortController uniquement pour /api/ai-reco (requête longue que l'utilisateur déclenche)
   const sendAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -69,18 +69,19 @@ export default function AssistantPage() {
     }
   }, [messages, loading]);
 
-  // FIX : cleanup de toutes les requêtes au démontage (navigation)
   useEffect(() => {
-    let cancelled = false;
+    // FIX : flag mounted au lieu d'AbortController pour éviter les soucis
+    // de StrictMode double-mount qui annulent les requêtes en cours.
+    let mounted = true;
 
     if (user?.id) {
-      loadConversations(() => cancelled);
-      loadTokenStatus(() => cancelled);
+      loadConversations(() => !mounted);
+      loadTokenStatus(() => !mounted);
     }
 
     return () => {
-      cancelled = true;
-      // Annule toute requête /api/ai-reco en cours si on navigue
+      mounted = false;
+      // On abort seulement /api/ai-reco qui est une requête longue déclenchée par l'user
       sendAbortRef.current?.abort();
     };
   }, [user?.id]);
@@ -100,7 +101,7 @@ export default function AssistantPage() {
         .gte('created_at', monthStart.toISOString())
         .maybeSingle();
 
-      if (isCancelled?.()) return; // Navigation → on ignore
+      if (isCancelled?.()) return;
 
       const tier = user.app_metadata?.tier === 'premium' ? 'premium' : 'free';
       const limit = tier === 'premium' ? 100000 : 15000;
@@ -125,7 +126,7 @@ export default function AssistantPage() {
         .order('updated_at', { ascending: false })
         .limit(10);
 
-      if (isCancelled?.()) return; // Navigation → on ignore
+      if (isCancelled?.()) return;
 
       if (error) {
         console.error('Error loading conversations:', error);
@@ -215,7 +216,7 @@ export default function AssistantPage() {
     setMessages((prev) => [...prev, { role: 'user', content: finalQuery }]);
     setLoading(true);
 
-    // FIX : annule toute requête précédente et crée un nouveau controller
+    // Annule toute requête précédente et crée un nouveau controller
     sendAbortRef.current?.abort();
     sendAbortRef.current = new AbortController();
 
@@ -227,7 +228,7 @@ export default function AssistantPage() {
 
       const res = await fetch('/api/ai-reco', {
         method: 'POST',
-        signal: sendAbortRef.current.signal, // ← annulable
+        signal: sendAbortRef.current.signal,
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -305,7 +306,7 @@ export default function AssistantPage() {
         }
       }
     } catch (e: any) {
-      // FIX : si on a annulé (navigation), on ignore silencieusement
+      // Si on a annulé (navigation), on ignore silencieusement
       if (e.name === 'AbortError') return;
 
       console.error('Error:', e);
@@ -383,7 +384,6 @@ export default function AssistantPage() {
 
       {/* Main Chat */}
       <div className="flex-1 flex flex-col">
-        {/* Header */}
         <div className="bg-gray-800 border-b border-gray-700 p-4">
           <div className="flex items-center justify-between max-w-5xl mx-auto">
             <div className="flex items-center gap-3">

@@ -28,9 +28,9 @@ const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = ({ onGameC
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // FIX 1 : AbortController — annule tout si on navigue avant la fin
-    const controller = new AbortController();
-    const signal = controller.signal;
+    // FIX : flag mounted au lieu d'AbortController pour éviter les soucis
+    // de StrictMode double-mount qui annulent les requêtes en cours.
+    let mounted = true;
 
     const loadActivities = async () => {
       try {
@@ -38,23 +38,21 @@ const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = ({ onGameC
         if (!user) { setActivities([]); setLoading(false); return; }
 
         const data = await getFriendsActivities(15);
-        if (signal.aborted) return;
+        if (!mounted) return;
 
         if (data.length > 0) {
           const enrichedData = await enrichActivitiesWithGameData(data, language);
-          if (signal.aborted) return;
+          if (!mounted) return;
 
           setActivities(enrichedData);
 
-          // FIX 2 : batch query au lieu de N requêtes individuelles
+          // Batch query au lieu de N requêtes individuelles
           const resolved: Record<string, string | null> = {};
 
-          // Ceux qui ont déjà le review_id dans activity_data
           enrichedData
             .filter(a => a.activity_data?.review_id)
             .forEach(a => { resolved[a.id] = a.activity_data.review_id; });
 
-          // Ceux qui nécessitent un lookup — 1 seule requête
           const needsLookup = enrichedData.filter(
             a => !a.activity_data?.review_id &&
             (a.activity_type === 'review' || a.activity_data?.review_text)
@@ -67,33 +65,33 @@ const FriendsActivitySection: React.FC<FriendsActivitySectionProps> = ({ onGameC
               .in('user_id', needsLookup.map(a => a.user_id))
               .not('review_text', 'is', null);
 
-            if (!signal.aborted) {
-              needsLookup.forEach(a => {
-                const match = ratingsData?.find(
-                  r => r.user_id === a.user_id && String(r.game_id) === String(a.game_id)
-                );
-                resolved[a.id] = match?.id || null;
-              });
-            }
+            if (!mounted) return;
+
+            needsLookup.forEach(a => {
+              const match = ratingsData?.find(
+                r => r.user_id === a.user_id && String(r.game_id) === String(a.game_id)
+              );
+              resolved[a.id] = match?.id || null;
+            });
           }
 
-          if (!signal.aborted) setResolvedReviewIds(resolved);
+          if (mounted) setResolvedReviewIds(resolved);
         } else {
-          if (!signal.aborted) setActivities([]);
+          if (mounted) setActivities([]);
         }
-      } catch (error: any) {
-        if (error.name === 'AbortError') return;
+      } catch (error) {
         console.error('[FRIENDS_ACTIVITY] Error loading activities:', error);
-        if (!signal.aborted) setActivities([]);
+        if (mounted) setActivities([]);
       } finally {
-        if (!signal.aborted) setLoading(false);
+        if (mounted) setLoading(false);
       }
     };
 
     loadActivities();
 
-    // FIX 1 : cleanup à la navigation
-    return () => controller.abort();
+    return () => {
+      mounted = false;
+    };
   }, [user, language]);
 
   if (loading) {

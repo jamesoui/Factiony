@@ -46,11 +46,10 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
     return platforms.map((p: any) => (typeof p === 'string' ? p : p?.platform?.name || p?.name)).filter(Boolean);
   };
 
-  async function fetchRandomReleased(signal?: AbortSignal) {
+  async function fetchRandomReleased() {
     const randomPage = Math.floor(Math.random() * 50) + 1;
     const res = await fetch(`${API_URL}/games?page_size=10&page=${randomPage}`, {
       headers: { "x-factiony-key": FACTIONY_KEY },
-      signal,
     });
     const json = await res.json();
     return (json.results || [])
@@ -72,11 +71,10 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
       }));
   }
 
-  async function fetchRandomUpcoming(signal?: AbortSignal) {
+  async function fetchRandomUpcoming() {
     const randomPage = Math.floor(Math.random() * 50) + 1;
     const res = await fetch(`${API_URL}/games?page_size=10&page=${randomPage}`, {
       headers: { "x-factiony-key": FACTIONY_KEY },
-      signal,
     });
     const json = await res.json();
     return (json.results || [])
@@ -104,22 +102,23 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
   }
 
   useEffect(() => {
-    const controller = new AbortController();
-    const signal = controller.signal;
-    console.log('🟢 DiscoverView mount - useEffect start');
+    // FIX : flag mounted au lieu d'AbortController pour éviter les soucis
+    // de StrictMode double-mount qui annulent les requêtes en cours.
+    // Les requêtes se terminent naturellement, on ignore juste les setState.
+    let mounted = true;
 
     async function loadTrendingGames() {
       try {
         let allStats: any[] = [];
 
         const trendingStats = await getTrendingGames(10);
-        if (signal.aborted) { console.log('⏸️ aborted after getTrendingGames'); return; }
+        if (!mounted) return;
         allStats = [...trendingStats];
 
         if (allStats.length < 10) {
           const neededCount = 10 - allStats.length;
           const recentStats = await getRecentlyRatedGames(neededCount + 5);
-          if (signal.aborted) { console.log('⏸️ aborted after getRecentlyRatedGames'); return; }
+          if (!mounted) return;
           const existingIds = new Set(allStats.map(s => s.game_id));
           const newRecent = recentStats.filter(s => !existingIds.has(s.game_id));
           allStats = [...allStats, ...newRecent.slice(0, neededCount)];
@@ -128,7 +127,7 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
         if (allStats.length < 10) {
           const neededCount = 10 - allStats.length;
           const topRatedStats = await getTopRatedGames(neededCount + 5);
-          if (signal.aborted) { console.log('⏸️ aborted after getTopRatedGames'); return; }
+          if (!mounted) return;
           const existingIds = new Set(allStats.map(s => s.game_id));
           const newTopRated = topRatedStats.filter(s => !existingIds.has(s.game_id));
           allStats = [...allStats, ...newTopRated.slice(0, neededCount)];
@@ -137,7 +136,7 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
         if (allStats.length > 0) {
           const gameIds = allStats.map(stat => stat.game_id);
           const games = await fetchGamesByIds(gameIds);
-          if (signal.aborted) { console.log('⏸️ aborted after fetchGamesByIds'); return; }
+          if (!mounted) return;
 
           if (games.length > 0) {
             const gamesMap = new Map(games.map((g: any) => [g.id.toString(), g]));
@@ -160,7 +159,6 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
                 playtime: game.playtime,
                 esrbRating: game.esrb_rating
               }));
-            console.log('✅ trending loaded, setting state');
             setTrendingGames(trendingMapped);
             setTrendingLoading(false);
             return;
@@ -169,7 +167,7 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
 
         logger.log("Chargement des jeux populaires par défaut...");
         const popularGames = await searchPopularGames(10);
-        if (signal.aborted) { console.log('⏸️ aborted after searchPopularGames'); return; }
+        if (!mounted) return;
 
         if (popularGames.length > 0) {
           const trendingMapped = popularGames.map((game: any) => ({
@@ -189,16 +187,10 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
           }));
           setTrendingGames(trendingMapped);
         }
-      } catch (error: any) {
-        if (error.name === 'AbortError') { console.log('⏸️ AbortError in loadTrendingGames'); return; }
+      } catch (error) {
         console.error("Erreur lors du chargement des jeux en tendance:", error);
       } finally {
-        if (!signal.aborted) {
-          console.log('🏁 trendingLoading → false');
-          setTrendingLoading(false);
-        } else {
-          console.log('🚫 trendingLoading stays true because aborted');
-        }
+        if (mounted) setTrendingLoading(false);
       }
     }
 
@@ -210,7 +202,7 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
 
       try {
         const topRatedGamesData = await getTopRatedGamesWithCompositeScore(20);
-        if (signal.aborted) { console.log('⏸️ aborted after getTopRatedGamesWithCompositeScore'); return; }
+        if (!mounted) return;
 
         if (!topRatedGamesData || topRatedGamesData.length === 0) {
           setTopRatedGames([]);
@@ -234,13 +226,13 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
         }
 
         const mostFollowedGames = await getMostFollowedUnreleasedGames(15);
-        if (signal.aborted) { console.log('⏸️ aborted after getMostFollowedUnreleasedGames'); return; }
+        if (!mounted) return;
 
         if (mostFollowedGames.length > 0) {
           const gameIds = mostFollowedGames.map(g => g.game_id);
           const locale = localStorage.getItem('language') || 'fr';
           const gamesData = await gameDataCache.getGames(gameIds, locale);
-          if (signal.aborted) { console.log('⏸️ aborted after gameDataCache.getGames'); return; }
+          if (!mounted) return;
 
           const anticipatedMapped = gameIds
             .map(id => gamesData[id])
@@ -262,28 +254,21 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({ onViewChange, onUserClick }
             }));
           setAnticipatedGames(anticipatedMapped);
         } else {
-          const fallbackGames = await fetchRandomUpcoming(signal);
-          if (signal.aborted) { console.log('⏸️ aborted after fetchRandomUpcoming'); return; }
+          const fallbackGames = await fetchRandomUpcoming();
+          if (!mounted) return;
           setAnticipatedGames(fallbackGames);
         }
-      } catch (e: any) {
-        if (e.name === 'AbortError') { console.log('⏸️ AbortError in loadData'); return; }
+      } catch (e) {
         console.error("Error loading discover:", e);
       } finally {
-        if (!signal.aborted) {
-          console.log('🏁 loading → false');
-          setLoading(false);
-        } else {
-          console.log('🚫 loading stays true because aborted');
-        }
+        if (mounted) setLoading(false);
       }
     }
 
     loadData();
 
     return () => {
-      console.log('🔴 DiscoverView unmount - aborting');
-      controller.abort();
+      mounted = false;
     };
   }, []);
 
