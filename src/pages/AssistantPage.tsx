@@ -22,6 +22,7 @@ type AiRecoResponse = {
   tokens_used?: number;
   error?: string;
   message?: string;
+  mode?: string;
 };
 
 type Conversation = {
@@ -60,7 +61,6 @@ export default function AssistantPage() {
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  // AbortController uniquement pour /api/ai-reco (requête longue que l'utilisateur déclenche)
   const sendAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -70,42 +70,38 @@ export default function AssistantPage() {
   }, [messages, loading]);
 
   useEffect(() => {
-    // FIX : flag mounted au lieu d'AbortController pour éviter les soucis
-    // de StrictMode double-mount qui annulent les requêtes en cours.
     let mounted = true;
-
     if (user?.id) {
       loadConversations(() => !mounted);
       loadTokenStatus(() => !mounted);
     }
-
     return () => {
       mounted = false;
-      // On abort seulement /api/ai-reco qui est une requête longue déclenchée par l'user
       sendAbortRef.current?.abort();
     };
   }, [user?.id]);
 
   async function loadTokenStatus(isCancelled?: () => boolean) {
     if (!user?.id) return;
-
     try {
       const monthStart = new Date();
       monthStart.setDate(1);
       monthStart.setHours(0, 0, 0, 0);
 
+      // FIX: somme toutes les lignes du mois (une ligne par requête désormais)
       const { data } = await supabase
         .from('token_usage')
         .select('tokens_used')
         .eq('user_id', user.id)
-        .gte('created_at', monthStart.toISOString())
-        .maybeSingle();
+        .gte('created_at', monthStart.toISOString());
 
       if (isCancelled?.()) return;
 
       const tier = user.app_metadata?.tier === 'premium' ? 'premium' : 'free';
       const limit = tier === 'premium' ? 100000 : 15000;
-      const used = typeof data?.tokens_used === 'number' ? data.tokens_used : 0;
+      const used = Array.isArray(data)
+        ? data.reduce((sum, row) => sum + (typeof row.tokens_used === 'number' ? row.tokens_used : 0), 0)
+        : 0;
 
       setTokenStatus({ used, limit, tier });
     } catch (e) {
@@ -114,10 +110,7 @@ export default function AssistantPage() {
   }
 
   async function loadConversations(isCancelled?: () => boolean) {
-    if (!user?.id) {
-      setConversations([]);
-      return;
-    }
+    if (!user?.id) { setConversations([]); return; }
     try {
       const { data, error } = await supabase
         .from('ai_conversations')
@@ -127,13 +120,8 @@ export default function AssistantPage() {
         .limit(10);
 
       if (isCancelled?.()) return;
-
-      if (error) {
-        console.error('Error loading conversations:', error);
-        setConversations([]);
-      } else {
-        setConversations(data ?? []);
-      }
+      if (error) { console.error('Error loading conversations:', error); setConversations([]); }
+      else { setConversations(data ?? []); }
     } catch (e) {
       console.error('Load conversations error:', e);
       setConversations([]);
@@ -150,18 +138,12 @@ export default function AssistantPage() {
         .eq('session_id', sid)
         .maybeSingle();
 
-      if (error) {
-        console.error('Error loading conversation:', error);
-        return;
-      }
-
+      if (error) { console.error('Error loading conversation:', error); return; }
       if (data?.messages) {
         sessionIdRef.current = sid;
         setMessages(JSON.parse(data.messages));
       }
-    } catch (e) {
-      console.error('Load conversation error:', e);
-    }
+    } catch (e) { console.error('Load conversation error:', e); }
   }
 
   async function deleteConversation(sid: string, e: React.MouseEvent) {
@@ -174,30 +156,23 @@ export default function AssistantPage() {
         .eq('user_id', user.id)
         .eq('session_id', sid);
 
-      if (error) {
-        console.error('Error deleting conversation:', error);
-      } else {
-        loadConversations();
-      }
-    } catch (e) {
-      console.error('Delete conversation error:', e);
-    }
+      if (error) console.error('Error deleting conversation:', error);
+      else loadConversations();
+    } catch (e) { console.error('Delete conversation error:', e); }
   }
 
   function startNewConversation() {
     sessionIdRef.current = crypto.randomUUID();
-    setMessages([
-      {
-        role: 'assistant',
-        content: user
+    setMessages([{
+      role: 'assistant',
+      content: user
         ? (language === 'en'
     ? `Hey ${firstName} 👋\n\nWhat are we playing today?\n\nI can recommend games based on your Factiony taste, answer your gaming questions (bosses, builds, strats), and tap into our community's wisdom!`
     : `Salut ${firstName} 👋\n\nOn joue à quoi aujourd'hui ?\n\nJe peux te recommander des jeux basé sur tes goûts Factiony, répondre à tes questions gaming (boss, builds, strats), et utiliser la sagesse de notre communauté !`)
 : (language === 'en'
     ? `Hey 👋\n\nI'm Albus, Factiony's AI Assistant.\n\nI can:\n• Recommend games\n• Answer your gaming questions (bosses, builds, strats)\n• Use your history for personalized advice\n\nSign in for personalized recommendations!`
     : `Salut 👋\n\nJe suis Albus, l'Assistant IA de Factiony.\n\nJe peux :\n• Te recommander des jeux\n• Répondre à tes questions gaming (boss, builds, strats)\n• Utiliser ton historique pour des conseils perso\n\nConnecte-toi pour des recos personnalisées !`),
-      },
-    ]);
+    }]);
     setError(null);
   }
 
@@ -205,26 +180,28 @@ export default function AssistantPage() {
     const finalQuery = (query || input).trim();
     if (!finalQuery || loading) return;
 
-    if (!user) {
-      setShowAuthModal(true);
-      return;
-    }
-
+    if (!user) { setShowAuthModal(true); return; }
     if (!query) setInput('');
     setError(null);
 
     setMessages((prev) => [...prev, { role: 'user', content: finalQuery }]);
     setLoading(true);
 
-    // Annule toute requête précédente et crée un nouveau controller
     sendAbortRef.current?.abort();
     sendAbortRef.current = new AbortController();
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
-
       const tier = user?.app_metadata?.tier === 'premium' ? 'premium' : 'free';
+
+      // NOUVEAU: extrait l'historique de conversation pour la mémoire d'Albus
+      // On prend les 6 derniers messages (3 échanges), on exclut le message welcome initial
+      // et on ne passe que les rôles user/assistant (pas les cards recommendations)
+      const history = messages
+        .filter(m => (m.role === 'user' || m.role === 'assistant') && m.content.trim().length > 0)
+        .slice(-6)
+        .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content.substring(0, 500) }));
 
       const res = await fetch('/api/ai-reco', {
         method: 'POST',
@@ -237,14 +214,14 @@ export default function AssistantPage() {
           query: finalQuery,
           user_pseudo: userPseudo,
           user_id: user?.id || '',
-          tier: tier,
-          language: language,
+          tier,
+          language,
+          // NOUVEAU: historique des derniers échanges pour la mémoire contextuelle
+          history,
         }),
       });
 
-      if (!res.ok) {
-        throw new Error(`API error ${res.status}`);
-      }
+      if (!res.ok) throw new Error(`API error ${res.status}`);
 
       const data: AiRecoResponse = await res.json();
 
@@ -259,6 +236,7 @@ export default function AssistantPage() {
 
       let hasAddedRecos = false;
 
+      // Recommendations (mode: recommendation)
       if (data.recommendations?.length) {
         setMessages((prev) => [...prev, {
           role: 'recommendations',
@@ -268,32 +246,34 @@ export default function AssistantPage() {
         hasAddedRecos = true;
       }
 
+      // Réponse texte : gameplay, profile, comparison, blocked
       if (data.answer) {
         const lines: string[] = [data.answer];
         if (data.has_community_context) lines.push('\n💬 _Basé sur l\'expérience de la communauté Factiony_');
         if (data.follow_up_question) lines.push(`\n${data.follow_up_question}`);
-
         setMessages((prev) => [...prev, { role: 'assistant', content: lines.join('\n') }]);
       }
 
+      // Question de suivi après les recommendations
       if (hasAddedRecos && data.recommendations?.length && data.personal_message) {
         setMessages((prev) => [...prev, { role: 'assistant', content: data.personal_message! }]);
       }
 
+      // Mise à jour du compteur de tokens côté UI
       if (data.tokens_used && typeof data.tokens_used === 'number') {
         setTokenStatus(prev => prev ? { ...prev, used: prev.used + data.tokens_used! } : null);
       }
 
+      // Sauvegarde la conversation dans Supabase
       if (user?.id) {
         try {
           setMessages(prev => {
-            const fullMessages = prev;
             supabase
               .from('ai_conversations')
               .upsert({
                 user_id: user.id,
                 session_id: sessionIdRef.current,
-                messages: JSON.stringify(fullMessages),
+                messages: JSON.stringify(prev),
                 last_query: finalQuery,
                 updated_at: new Date().toISOString(),
               })
@@ -301,17 +281,12 @@ export default function AssistantPage() {
               .catch(err => console.error('Save error:', err));
             return prev;
           });
-        } catch (saveErr) {
-          console.error('Save error:', saveErr);
-        }
+        } catch (saveErr) { console.error('Save error:', saveErr); }
       }
     } catch (e: any) {
-      // Si on a annulé (navigation), on ignore silencieusement
       if (e.name === 'AbortError') return;
-
       console.error('Error:', e);
-      const errorMsg = e.message || 'Erreur technique. Réessaie.';
-      setError(errorMsg);
+      setError(e.message || 'Erreur technique. Réessaie.');
       setMessages((prev) => [...prev, {
         role: 'assistant',
         content: 'Désolé, j\'ai eu une erreur. Réessaie dans un instant.'
@@ -437,21 +412,21 @@ export default function AssistantPage() {
                   {m.role === 'recommendations' && m.recommendations && (
                     <div className="mb-4 flex justify-start">
                       <div className="max-w-md px-4 py-3 rounded-lg bg-gray-700 rounded-bl-none w-full">
-                        <p className="text-gray-100 font-semibold mb-3">Voilà {m.recommendations.length} jeu{m.recommendations.length > 1 ? 'x' : ''} pour toi :</p>
+                        <p className="text-gray-100 font-semibold mb-3">
+                          Voilà {m.recommendations.length} jeu{m.recommendations.length > 1 ? 'x' : ''} pour toi :
+                        </p>
                         <div className="space-y-3">
                           {m.recommendations.map((r, idx) => (
                             <div key={idx} className="border-l-2 border-orange-500 pl-3 py-2">
                               <p className="text-gray-100 text-sm mb-1">🎮 <span className="font-semibold">{r.title}</span></p>
-                              {r.summary && (
-                                <p className="text-gray-300 text-xs mb-2">{r.summary}</p>
-                              )}
+                              {r.summary && <p className="text-gray-300 text-xs mb-2">{r.summary}</p>}
                               <p className="text-gray-400 text-xs mb-2">{r.why}</p>
                               {r.url && (
                                 <a
                                   href={r.url}
-                                  target='_blank'
-                                  rel='noopener noreferrer'
-                                  className='text-orange-400 hover:text-orange-300 text-xs underline block'
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-orange-400 hover:text-orange-300 text-xs underline block"
                                 >
                                   Pour en savoir plus sur {r.title}
                                 </a>
