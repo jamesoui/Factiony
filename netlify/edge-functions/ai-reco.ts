@@ -362,6 +362,9 @@ async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userJw
     const topPlatform = sortedPlatforms[0] ?? "non renseignée";
     const allPlatforms = sortedPlatforms.join(", ") || "non renseignée";
 
+    // FIX: topRated était utilisé dans le summary sans être déclaré
+    const topRated = ratings.filter((r: any) => Number(r.rating) >= 4);
+
     const profile: UserProfile = {
       likedGames: follows,
       averageRating,
@@ -407,7 +410,8 @@ export default async (request: Request) => {
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
   const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
   const MISTRAL_API_KEY = Deno.env.get("MISTRAL_API_KEY");
-  const RAWG_API_KEY = Deno.env.get("VITE_RAWG_API_KEY");
+  // FIX: VITE_ prefix ne fonctionne pas dans les Edge Functions Deno — utilise RAWG_API_KEY
+  const RAWG_API_KEY = Deno.env.get("RAWG_API_KEY") ?? "";
   const BRAVE_API_KEY = Deno.env.get("BRAVE_SEARCH_API_KEY");
   const BASE_URL = Deno.env.get("FACTIONY_BASE_URL") ?? "https://factiony.com";
 
@@ -417,6 +421,10 @@ export default async (request: Request) => {
 
   if (!BRAVE_API_KEY) {
     console.warn("[ALBUS] BRAVE_SEARCH_API_KEY manquant — web search désactivé");
+  }
+
+  if (!RAWG_API_KEY) {
+    console.warn("[ALBUS] RAWG_API_KEY manquant — recherche RAWG désactivée");
   }
 
   let body: any;
@@ -458,57 +466,57 @@ export default async (request: Request) => {
   const userJwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : SUPABASE_ANON_KEY;
 
   // ==================== RATE LIMITING (SERVER-SIDE) ====================
-// Vérification tier depuis Supabase (ne pas faire confiance au client)
-let serverTier = "free";
-if (userId) {
-  try {
-    const subRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/subscriptions?user_id=eq.${userId}&status=eq.active&select=plan&limit=1`,
-      { headers: { "apikey": SUPABASE_ANON_KEY!, "Authorization": `Bearer ${userJwt}` } }
-    );
-    if (subRes.ok) {
-      const subs = await subRes.json();
-      if (subs?.[0]?.plan === "premium") serverTier = "premium";
-    }
-  } catch (e) {
-    console.error("[ALBUS] Tier check error:", e);
-  }
-}
-
-// Vérification tokens utilisés ce mois
-if (userId) {
-  try {
-    const monthStart = new Date();
-    monthStart.setDate(1);
-    monthStart.setHours(0, 0, 0, 0);
-
-    const usageRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/token_usage?user_id=eq.${userId}&created_at=gte.${monthStart.toISOString()}&select=tokens_used&limit=1`,
-      { headers: { "apikey": SUPABASE_ANON_KEY!, "Authorization": `Bearer ${userJwt}` } }
-    );
-
-    if (usageRes.ok) {
-      const usage = await usageRes.json();
-      const tokensUsed = usage?.[0]?.tokens_used ?? 0;
-      const tokenLimit = serverTier === "premium" ? 100000 : 15000;
-
-      if (tokensUsed >= tokenLimit) {
-        console.log(`[ALBUS] Token limit reached for ${userId}: ${tokensUsed}/${tokenLimit}`);
-        return jsonResponse({
-          error: "token_limit_exceeded",
-          message: serverTier === "premium"
-            ? `Tu as atteint ta limite mensuelle premium (${tokenLimit.toLocaleString()} tokens). Réinitialisation le 1er du mois.`
-            : `Tu as atteint ta limite mensuelle gratuite (${tokenLimit.toLocaleString()} tokens). Passe premium pour 10x plus !`,
-        }, 200, corsHeaders);
+  // Vérification tier depuis Supabase (ne pas faire confiance au client)
+  let serverTier = "free";
+  if (userId) {
+    try {
+      const subRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/subscriptions?user_id=eq.${userId}&status=eq.active&select=plan&limit=1`,
+        { headers: { "apikey": SUPABASE_ANON_KEY!, "Authorization": `Bearer ${userJwt}` } }
+      );
+      if (subRes.ok) {
+        const subs = await subRes.json();
+        if (subs?.[0]?.plan === "premium") serverTier = "premium";
       }
-
-      console.log(`[ALBUS] Tokens: ${tokensUsed}/${tokenLimit} (${serverTier})`);
+    } catch (e) {
+      console.error("[ALBUS] Tier check error:", e);
     }
-  } catch (e) {
-    console.error("[ALBUS] Token check error:", e);
-    // En cas d'erreur on laisse passer — mieux vaut servir que bloquer
   }
-}
+
+  // Vérification tokens utilisés ce mois
+  if (userId) {
+    try {
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+
+      const usageRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/token_usage?user_id=eq.${userId}&created_at=gte.${monthStart.toISOString()}&select=tokens_used&limit=1`,
+        { headers: { "apikey": SUPABASE_ANON_KEY!, "Authorization": `Bearer ${userJwt}` } }
+      );
+
+      if (usageRes.ok) {
+        const usage = await usageRes.json();
+        const tokensUsed = usage?.[0]?.tokens_used ?? 0;
+        const tokenLimit = serverTier === "premium" ? 100000 : 15000;
+
+        if (tokensUsed >= tokenLimit) {
+          console.log(`[ALBUS] Token limit reached for ${userId}: ${tokensUsed}/${tokenLimit}`);
+          return jsonResponse({
+            error: "token_limit_exceeded",
+            message: serverTier === "premium"
+              ? `Tu as atteint ta limite mensuelle premium (${tokenLimit.toLocaleString()} tokens). Réinitialisation le 1er du mois.`
+              : `Tu as atteint ta limite mensuelle gratuite (${tokenLimit.toLocaleString()} tokens). Passe premium pour 10x plus !`,
+          }, 200, corsHeaders);
+        }
+
+        console.log(`[ALBUS] Tokens: ${tokensUsed}/${tokenLimit} (${serverTier})`);
+      }
+    } catch (e) {
+      console.error("[ALBUS] Token check error:", e);
+      // En cas d'erreur on laisse passer — mieux vaut servir que bloquer
+    }
+  }
 
   // Tout en parallèle — profil + Brave + RAWG sans plateforme d'abord
   const [webData, rawgDataInitial, userProfileData] = await Promise.all([
@@ -572,7 +580,7 @@ Réponds avec les meilleures stratégies/builds/conseils. Sois précis et action
         signal: controller.signal,
         headers: { Authorization: "Bearer " + MISTRAL_API_KEY, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "mistral-small-latest", // FIX: small suffisant avec données Brave déjà structurées, 3x plus rapide
+          model: "mistral-small-latest",
           temperature: 0.7,
           max_tokens: 2500,
           messages: [
