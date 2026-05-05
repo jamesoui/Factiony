@@ -44,7 +44,6 @@ interface QueryUnderstanding {
   context: string;
   user_mindset: "casual" | "hardcore" | "explorer" | "collector";
   intent: "discovery" | "recommendation" | "advice" | "comparison" | "help";
-  // FIX: prix max extrait de la requête
   price_max: number | null;
 }
 
@@ -63,7 +62,7 @@ function getTodayDate(): string {
   return new Date().toISOString().split("T")[0];
 }
 
-// FIX: normalise les noms de jeux pour le matching (gère "III" vs "3", apostrophes, ponctuation)
+// Normalise les noms de jeux pour le matching (gère "III" vs "3", apostrophes, ponctuation)
 function normalizeGameName(name: string): string {
   return name.toLowerCase()
     .replace(/\biii\b/g, "3")
@@ -132,7 +131,7 @@ GENRES (important pour filtrer RAWG correctement):
 - "solo" → genres=["solo"]
 
 NEEDS_CURRENT_DATA:
-- type="gameplay" → needs_current_data=true TOUJOURS (builds, patches, metas changent)
+- type="gameplay" → needs_current_data=true TOUJOURS
 - type="recommendation" + temporel → needs_current_data=true
 - type="recommendation" + all_time → needs_current_data=false
 
@@ -142,14 +141,12 @@ MIND-SET:
 - "hidden gems|découvrir|explorer" → explorer
 - "collection|tous|complet" → collector
 
-IMPORTANT: Réponds UNIQUEMENT avec le JSON ci-dessus. Aucun champ supplémentaire, aucun commentaire, aucun analysis_notes.`;
+IMPORTANT: Réponds UNIQUEMENT avec le JSON ci-dessus. Aucun champ supplémentaire, aucun commentaire.`;
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      console.log("[ALBUS] Understanding TIMEOUT après 10s");
-      controller.abort();
-    }, 10000);
+    // PERF: réduit de 10s à 7s — mistral-large répond en ~2-3s en pratique
+    const timeout = setTimeout(() => controller.abort(), 7000);
 
     const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
       method: "POST",
@@ -158,7 +155,7 @@ IMPORTANT: Réponds UNIQUEMENT avec le JSON ci-dessus. Aucun champ supplémentai
       body: JSON.stringify({
         model: "mistral-large-latest",
         temperature: 0,
-        max_tokens: 1000,
+        max_tokens: 500, // PERF: understanding JSON ne dépasse jamais 500 tokens
         messages: [{ role: "user", content: prompt }],
       }),
     });
@@ -168,7 +165,6 @@ IMPORTANT: Réponds UNIQUEMENT avec le JSON ci-dessus. Aucun champ supplémentai
       const json = await res.json();
       const text = json?.choices?.[0]?.message?.content ?? "{}";
       const tokens = estimateTokens(prompt + text);
-
       try {
         const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
         return { understanding: parsed, tokens };
@@ -192,7 +188,7 @@ IMPORTANT: Réponds UNIQUEMENT avec le JSON ci-dessus. Aucun champ supplémentai
   };
 }
 
-// ==================== BRAVE SEARCH (vrai web search) ====================
+// ==================== BRAVE SEARCH ====================
 async function braveWebSearch(understanding: QueryUnderstanding, query: string, braveKey: string): Promise<{ results: string; tokens: number }> {
   if (!understanding.temporal.needs_current_data) {
     console.log("[ALBUS] Brave Search: OFF (all_time)");
@@ -206,17 +202,14 @@ async function braveWebSearch(understanding: QueryUnderstanding, query: string, 
     searchQuery = `${query} ${understanding.temporal.label} 2026`;
   }
 
-  console.log("[ALBUS] Brave Search: ON → query:", searchQuery);
+  console.log("[ALBUS] Brave Search: ON →", searchQuery);
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      console.log("[ALBUS] Brave Search TIMEOUT après 5s");
-      controller.abort();
-    }, 5000);
+    // PERF: réduit de 5s à 4s
+    const timeout = setTimeout(() => controller.abort(), 4000);
 
     const braveUrl = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(searchQuery)}&count=5&search_lang=fr&country=fr&text_decorations=false&extra_snippets=true`;
-
     const res = await fetch(braveUrl, {
       signal: controller.signal,
       headers: {
@@ -227,46 +220,29 @@ async function braveWebSearch(understanding: QueryUnderstanding, query: string, 
     });
     clearTimeout(timeout);
 
-    if (!res.ok) {
-      console.error("[ALBUS] Brave Search HTTP error:", res.status);
-      return { results: "", tokens: 0 };
-    }
+    if (!res.ok) return { results: "", tokens: 0 };
 
     const data = await res.json();
     const webResults = data?.web?.results ?? [];
+    if (webResults.length === 0) return { results: "", tokens: 0 };
 
-    if (webResults.length === 0) {
-      console.log("[ALBUS] Brave Search: 0 résultats");
-      return { results: "", tokens: 0 };
-    }
-
-    const formatted = webResults
-      .slice(0, 5)
-      .map((r: any, i: number) => {
-        const snippet = r.extra_snippets?.[0] || r.description || "";
-        return `[${i + 1}] ${r.title}\n${snippet}`;
-      })
+    const formatted = webResults.slice(0, 5)
+      .map((r: any, i: number) => `[${i + 1}] ${r.title}\n${r.extra_snippets?.[0] || r.description || ""}`)
       .join("\n\n");
 
-    console.log("[ALBUS] Brave Search: ✅", webResults.length, "résultats");
+    console.log("[ALBUS] Brave: ✅", webResults.length, "résultats");
     return { results: formatted, tokens: estimateTokens(formatted) };
-
   } catch (e) {
-    console.error("[ALBUS] Brave Search error:", e);
+    console.error("[ALBUS] Brave error:", e);
     return { results: "", tokens: 0 };
   }
 }
 
 // ==================== RAWG SEARCH ====================
-async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey: string, userPlatforms: string[] = []): Promise<{ games: any[]; tokens: number }> {
-  if (understanding.type === "gameplay") {
-    console.log("[ALBUS] RAWG: OFF (gameplay)");
-    return { games: [], tokens: 0 };
-  }
+async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey: string, platformIds: string[]): Promise<{ games: any[]; tokens: number }> {
+  if (understanding.type === "gameplay") return { games: [], tokens: 0 };
 
   let parsedTags: string[] = [];
-  let platformIds: string[] = [];
-
   if (understanding.genres?.length > 0) {
     parsedTags = understanding.genres
       .map((g: string) => TAG_IDS[g])
@@ -274,32 +250,13 @@ async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey:
       .map((id: number) => id.toString());
   }
 
-  const platformMap: Record<string, string> = {
-    "ps5": "187", "playstation 5": "187", "playstation": "187",
-    "xbox": "186", "xbox series": "186",
-    "switch": "7", "nintendo": "7",
-    "pc": "4",
-    "playstation 4": "18", "ps4": "18",
-    "playstation 3": "16", "ps3": "16",
-  };
-
-  const platformsToUse = understanding.platforms?.length > 0
-    ? understanding.platforms
-    : userPlatforms;
-
-  for (const p of platformsToUse) {
-    const id = platformMap[p.toLowerCase()];
-    if (id && !platformIds.includes(id)) platformIds.push(id);
-  }
-
-  console.log("[ALBUS] RAWG platforms:", platformIds.join(",") || "aucun filtre");
-  console.log("[ALBUS] RAWG tags:", parsedTags.join(",") || "aucun filtre");
+  console.log("[ALBUS] RAWG platforms:", platformIds.join(",") || "aucun");
+  console.log("[ALBUS] RAWG tags:", parsedTags.join(",") || "aucun");
 
   const rawgParams = new URLSearchParams();
   rawgParams.set("key", rawgKey);
   rawgParams.set("page_size", "50");
   rawgParams.set("ordering", understanding.temporal.start_date ? "-released" : "-rating");
-
   if (platformIds.length > 0) rawgParams.set("platforms", platformIds.join(","));
   if (parsedTags.length > 0) rawgParams.set("tags", parsedTags.join(","));
   if (understanding.temporal.start_date && understanding.temporal.end_date) {
@@ -312,9 +269,8 @@ async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey:
     console.log("[ALBUS] RAWG URL:", rawgUrl.substring(0, 120) + "...");
     const rawgRes = await fetch(rawgUrl);
     if (rawgRes.ok) {
-      const rawgData = await rawgRes.json();
-      games = rawgData.results || [];
-      console.log("[ALBUS] RAWG: ✅", games.length, "jeux bruts");
+      games = (await rawgRes.json()).results || [];
+      console.log("[ALBUS] RAWG: ✅", games.length, "jeux");
     }
   } catch (e) {
     console.error("[ALBUS] RAWG error:", e);
@@ -324,13 +280,8 @@ async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey:
     const startDate = new Date(understanding.temporal.start_date);
     const endDate = new Date(understanding.temporal.end_date);
     games = games
-      .filter(g => {
-        if (!g.released) return false;
-        const d = new Date(g.released);
-        return d >= startDate && d <= endDate;
-      })
+      .filter(g => { if (!g.released) return false; const d = new Date(g.released); return d >= startDate && d <= endDate; })
       .sort((a, b) => new Date(b.released).getTime() - new Date(a.released).getTime());
-    console.log("[ALBUS] RAWG après filtre date:", games.length, "jeux");
   }
 
   return { games, tokens: estimateTokens(JSON.stringify(games.slice(0, 20))) };
@@ -343,10 +294,7 @@ async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userJw
   }
 
   try {
-    const headers = {
-      "apikey": supabaseKey,
-      "Authorization": `Bearer ${userJwt}`,
-    };
+    const headers = { "apikey": supabaseKey, "Authorization": `Bearer ${userJwt}` };
 
     const [followsRes, ratingsRes] = await Promise.all([
       fetch(`${supabaseUrl}/rest/v1/game_follows?user_id=eq.${userId}&select=game_id,game_name&limit=50&order=created_at.desc`, { headers }),
@@ -360,9 +308,9 @@ async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userJw
 
     let averageRating = 0;
     if (ratings.length > 0) {
-      const ratingValues = ratings.map((r: any) => Number(r.rating)).filter((r: number) => !isNaN(r) && r > 0);
-      averageRating = ratingValues.length > 0
-        ? Math.round((ratingValues.reduce((a: number, b: number) => a + b, 0) / ratingValues.length) * 10) / 10
+      const vals = ratings.map((r: any) => Number(r.rating)).filter((r: number) => !isNaN(r) && r > 0);
+      averageRating = vals.length > 0
+        ? Math.round((vals.reduce((a: number, b: number) => a + b, 0) / vals.length) * 10) / 10
         : 0;
     }
 
@@ -371,17 +319,11 @@ async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userJw
       `${r.game_slug || r.game_id} (${r.rating}/5${r.platform ? ` sur ${r.platform}` : ""})`
     );
 
-    const platformCounts = ratings
-      .map((r: any) => r.platform)
-      .filter(Boolean)
+    const platformCounts = ratings.map((r: any) => r.platform).filter(Boolean)
       .reduce((acc: Record<string, number>, p: string) => { acc[p] = (acc[p] || 0) + 1; return acc; }, {});
-    const sortedPlatforms = Object.entries(platformCounts)
-      .sort((a: any, b: any) => b[1] - a[1])
-      .map(([p]) => p);
+    const sortedPlatforms = Object.entries(platformCounts).sort((a: any, b: any) => b[1] - a[1]).map(([p]) => p);
     const topPlatform = sortedPlatforms[0] ?? "non renseignée";
     const allPlatforms = sortedPlatforms.join(", ") || "non renseignée";
-
-    // FIX: topRated déclaré avant son utilisation dans le summary
     const topRated = ratings.filter((r: any) => Number(r.rating) >= 4);
 
     const profile: UserProfile = {
@@ -390,28 +332,59 @@ async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userJw
       reviews: ratings,
       summary: `
 USER PROFIL FACTIONY:
-
-JEUX JOUÉS ET NOTÉS (références de goût fiables):
 - ${ratings.length} jeux notés, moyenne ${averageRating}/5
-- ${topRated.length} jeux notés 4+/5 (vrais coups de cœur)
-- Derniers jeux notés: ${ratedGames.join(" | ") || "aucun"}
-
-PLATEFORMES JOUÉES (IMPORTANT - recommande uniquement des jeux dispo sur ces plateformes):
-- Plateforme principale: ${topPlatform}
-- Toutes ses plateformes: ${allPlatforms}
-
-JEUX SUIVIS / WISHLIST (envies futures, PAS encore joués - ne pas utiliser comme référence de goût):
-- ${follows.length} jeux en wishlist: ${followedNames.join(", ") || "aucun"}
-- Ces jeux ne sont PAS des références de goût, juste des envies
-
-PROFIL JOUEUR:
-- ${averageRating >= 4 ? "Joueur exigeant, aime les jeux de qualité" : averageRating >= 3 ? "Joueur standard, ouvert à différents genres" : follows.length > 10 ? "Explorateur curieux" : "Nouveau sur Factiony"}`,
+- ${topRated.length} coups de cœur (4+/5): ${ratedGames.join(" | ") || "aucun"}
+- Plateformes: ${allPlatforms} (principale: ${topPlatform})
+- Wishlist (${follows.length} jeux, PAS des références de goût): ${followedNames.join(", ") || "aucun"}
+- Profil: ${averageRating >= 4 ? "Joueur exigeant" : averageRating >= 3 ? "Joueur standard" : "Explorateur curieux"}`,
     };
 
     return { profile, tokens: estimateTokens(JSON.stringify(profile)) };
   } catch (e) {
     console.error("[ALBUS] User profile error:", e);
-    return { profile: { likedGames: [], averageRating: 0, reviews: [], summary: "Erreur chargement profil" }, tokens: 0 };
+    return { profile: { likedGames: [], averageRating: 0, reviews: [], summary: "Erreur profil" }, tokens: 0 };
+  }
+}
+
+// ==================== RATE LIMIT CHECK ====================
+async function checkRateLimit(supabaseUrl: string, supabaseKey: string, userJwt: string, userId: string): Promise<{ allowed: boolean; tier: string; message?: string }> {
+  if (!userId) return { allowed: true, tier: "free" };
+
+  try {
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    // PERF: tier + usage en parallèle (au lieu de séquentiel)
+    const [subRes, usageRes] = await Promise.all([
+      fetch(`${supabaseUrl}/rest/v1/subscriptions?user_id=eq.${userId}&status=eq.active&select=plan&limit=1`,
+        { headers: { "apikey": supabaseKey, "Authorization": `Bearer ${userJwt}` } }),
+      fetch(`${supabaseUrl}/rest/v1/token_usage?user_id=eq.${userId}&created_at=gte.${monthStart.toISOString()}&select=tokens_used&limit=1`,
+        { headers: { "apikey": supabaseKey, "Authorization": `Bearer ${userJwt}` } }),
+    ]);
+
+    const subs = subRes.ok ? await subRes.json() : [];
+    const tier = subs?.[0]?.plan === "premium" ? "premium" : "free";
+    const tokenLimit = tier === "premium" ? 100000 : 15000;
+
+    const usage = usageRes.ok ? await usageRes.json() : [];
+    const tokensUsed = usage?.[0]?.tokens_used ?? 0;
+
+    console.log(`[ALBUS] Tokens: ${tokensUsed}/${tokenLimit} (${tier})`);
+
+    if (tokensUsed >= tokenLimit) {
+      return {
+        allowed: false, tier,
+        message: tier === "premium"
+          ? `Tu as atteint ta limite mensuelle premium (${tokenLimit.toLocaleString()} tokens). Réinitialisation le 1er du mois.`
+          : `Tu as atteint ta limite mensuelle gratuite (${tokenLimit.toLocaleString()} tokens). Passe premium pour 10x plus !`,
+      };
+    }
+
+    return { allowed: true, tier };
+  } catch (e) {
+    console.error("[ALBUS] Rate limit check error:", e);
+    return { allowed: true, tier: "free" }; // fail open
   }
 }
 
@@ -429,7 +402,6 @@ export default async (request: Request) => {
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
   const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
   const MISTRAL_API_KEY = Deno.env.get("MISTRAL_API_KEY");
-  // FIX: VITE_ prefix ne fonctionne pas dans les Edge Functions Deno
   const RAWG_API_KEY = Deno.env.get("RAWG_API_KEY") ?? "";
   const BRAVE_API_KEY = Deno.env.get("BRAVE_SEARCH_API_KEY");
   const BASE_URL = Deno.env.get("FACTIONY_BASE_URL") ?? "https://factiony.com";
@@ -437,14 +409,8 @@ export default async (request: Request) => {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !MISTRAL_API_KEY) {
     return jsonResponse({ error: "Missing env vars" }, 500, corsHeaders);
   }
-
-  if (!BRAVE_API_KEY) {
-    console.warn("[ALBUS] BRAVE_SEARCH_API_KEY manquant — web search désactivé");
-  }
-
-  if (!RAWG_API_KEY) {
-    console.warn("[ALBUS] RAWG_API_KEY manquant — recherche RAWG désactivée");
-  }
+  if (!BRAVE_API_KEY) console.warn("[ALBUS] BRAVE_SEARCH_API_KEY manquant");
+  if (!RAWG_API_KEY) console.warn("[ALBUS] RAWG_API_KEY manquant");
 
   let body: any;
   try { body = await request.json(); }
@@ -457,18 +423,28 @@ export default async (request: Request) => {
 
   if (!query) return jsonResponse({ error: "Missing query" }, 400, corsHeaders);
 
-  const tokenUsage: TokenUsage = {
-    deep_understanding: 0, web_search: 0, rawg_search: 0,
-    user_data: 0, reasoning: 0, total: 0,
-  };
+  const tokenUsage: TokenUsage = { deep_understanding: 0, web_search: 0, rawg_search: 0, user_data: 0, reasoning: 0, total: 0 };
 
-  console.log("[ALBUS] 🤖 TRUE AGENTIC V6 (BRAVE SEARCH) - Query:", query);
+  console.log("[ALBUS] 🤖 V6 - Query:", query);
 
-  // ==================== STEP 1: UNDERSTANDING ====================
-  console.log("[ALBUS] Step 1: Deep Query Understanding...");
-  const { understanding, tokens: understandingTokens } = await deepQueryUnderstanding(query, MISTRAL_API_KEY);
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const userJwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : SUPABASE_ANON_KEY;
+
+  // ==================== PHASE 1: UNDERSTANDING + RATE LIMIT EN PARALLÈLE ====================
+  // PERF: au lieu de faire understanding PUIS rate limit, on les fait en même temps
+  console.log("[ALBUS] Phase 1: Understanding + Rate limit (parallèle)...");
+
+  const [{ understanding, tokens: understandingTokens }, rateLimitResult] = await Promise.all([
+    deepQueryUnderstanding(query, MISTRAL_API_KEY),
+    checkRateLimit(SUPABASE_URL, SUPABASE_ANON_KEY, userJwt, userId),
+  ]);
+
   tokenUsage.deep_understanding = understandingTokens;
   console.log("[ALBUS] Understanding:", JSON.stringify(understanding));
+
+  if (!rateLimitResult.allowed) {
+    return jsonResponse({ error: "token_limit_exceeded", message: rateLimitResult.message }, 200, corsHeaders);
+  }
 
   if (understanding.type === "blocked") {
     return jsonResponse({
@@ -477,117 +453,78 @@ export default async (request: Request) => {
     }, 200, corsHeaders);
   }
 
-  // ==================== STEP 2: PARALLEL ====================
-  console.log("[ALBUS] Step 2: Parallel Execution (Brave + RAWG + Profil)...");
+  // ==================== PHASE 2: BRAVE + RAWG + PROFILE EN PARALLÈLE ====================
+  // PERF: RAWG utilise directement les plateformes de la requête si disponibles,
+  // sinon on les récupère depuis le profil DANS LA MÊME PHASE (plus de 2ème appel RAWG)
+  console.log("[ALBUS] Phase 2: Brave + RAWG + Profile (parallèle)...");
 
-  const authHeader = request.headers.get("Authorization") ?? "";
-  const userJwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : SUPABASE_ANON_KEY;
+  const platformMap: Record<string, string> = {
+    "ps5": "187", "playstation 5": "187", "playstation": "187",
+    "xbox": "186", "xbox series": "186",
+    "switch": "7", "nintendo": "7",
+    "pc": "4", "playstation 4": "18", "ps4": "18",
+    "playstation 3": "16", "ps3": "16",
+  };
 
-  // ==================== RATE LIMITING (SERVER-SIDE) ====================
-  let serverTier = "free";
-  if (userId) {
-    try {
-      const subRes = await fetch(
-        `${SUPABASE_URL}/rest/v1/subscriptions?user_id=eq.${userId}&status=eq.active&select=plan&limit=1`,
-        { headers: { "apikey": SUPABASE_ANON_KEY!, "Authorization": `Bearer ${userJwt}` } }
-      );
-      if (subRes.ok) {
-        const subs = await subRes.json();
-        if (subs?.[0]?.plan === "premium") serverTier = "premium";
-      }
-    } catch (e) {
-      console.error("[ALBUS] Tier check error:", e);
-    }
-  }
-
-  if (userId) {
-    try {
-      const monthStart = new Date();
-      monthStart.setDate(1);
-      monthStart.setHours(0, 0, 0, 0);
-
-      const usageRes = await fetch(
-        `${SUPABASE_URL}/rest/v1/token_usage?user_id=eq.${userId}&created_at=gte.${monthStart.toISOString()}&select=tokens_used&limit=1`,
-        { headers: { "apikey": SUPABASE_ANON_KEY!, "Authorization": `Bearer ${userJwt}` } }
-      );
-
-      if (usageRes.ok) {
-        const usage = await usageRes.json();
-        const tokensUsed = usage?.[0]?.tokens_used ?? 0;
-        const tokenLimit = serverTier === "premium" ? 100000 : 15000;
-
-        if (tokensUsed >= tokenLimit) {
-          console.log(`[ALBUS] Token limit reached for ${userId}: ${tokensUsed}/${tokenLimit}`);
-          return jsonResponse({
-            error: "token_limit_exceeded",
-            message: serverTier === "premium"
-              ? `Tu as atteint ta limite mensuelle premium (${tokenLimit.toLocaleString()} tokens). Réinitialisation le 1er du mois.`
-              : `Tu as atteint ta limite mensuelle gratuite (${tokenLimit.toLocaleString()} tokens). Passe premium pour 10x plus !`,
-          }, 200, corsHeaders);
-        }
-
-        console.log(`[ALBUS] Tokens: ${tokensUsed}/${tokenLimit} (${serverTier})`);
-      }
-    } catch (e) {
-      console.error("[ALBUS] Token check error:", e);
-    }
-  }
+  // Plateformes explicites depuis la requête
+  const queryPlatformIds = (understanding.platforms ?? [])
+    .map((p: string) => platformMap[p.toLowerCase()])
+    .filter(Boolean) as string[];
 
   const [webData, rawgDataInitial, userProfileData] = await Promise.all([
     BRAVE_API_KEY
       ? braveWebSearch(understanding, query, BRAVE_API_KEY)
       : Promise.resolve({ results: "", tokens: 0 }),
-    intelligentRawgSearch(understanding, RAWG_API_KEY, []),
+    intelligentRawgSearch(understanding, RAWG_API_KEY, queryPlatformIds),
     fetchUserProfile(SUPABASE_URL, SUPABASE_ANON_KEY, userJwt, userId, understanding.type),
   ]);
 
-  const userPlatformNames = userProfileData.profile.reviews
-    .map((r: any) => r.platform)
-    .filter(Boolean)
-    .reduce((acc: Record<string, number>, p: string) => { acc[p] = (acc[p] || 0) + 1; return acc; }, {});
-  const sortedUserPlatforms = Object.entries(userPlatformNames)
-    .sort((a: any, b: any) => b[1] - a[1])
-    .map(([p]) => p.toLowerCase());
-
+  // Si pas de plateforme dans la requête → utilise celles du profil, refait RAWG UNE SEULE FOIS
   let rawgData = rawgDataInitial;
-  if (sortedUserPlatforms.length > 0 && understanding.platforms?.length === 0) {
-    rawgData = await intelligentRawgSearch(understanding, RAWG_API_KEY, sortedUserPlatforms);
+  if (queryPlatformIds.length === 0 && rawgDataInitial.games.length === 0) {
+    const profilePlatformIds = Object.entries(
+      userProfileData.profile.reviews
+        .map((r: any) => r.platform).filter(Boolean)
+        .reduce((acc: Record<string, number>, p: string) => { acc[p] = (acc[p] || 0) + 1; return acc; }, {})
+    )
+      .sort((a: any, b: any) => b[1] - a[1])
+      .map(([p]) => platformMap[p.toLowerCase()])
+      .filter(Boolean) as string[];
+
+    if (profilePlatformIds.length > 0) {
+      rawgData = await intelligentRawgSearch(understanding, RAWG_API_KEY, profilePlatformIds);
+    }
+  } else if (queryPlatformIds.length === 0 && rawgDataInitial.games.length > 0) {
+    // On a des jeux sans filtre plateforme — on garde, pas besoin de re-fetch
+    rawgData = rawgDataInitial;
   }
 
   tokenUsage.web_search = webData.tokens;
   tokenUsage.rawg_search = rawgData.tokens;
   tokenUsage.user_data = userProfileData.tokens;
 
-  console.log("[ALBUS] Parallel done → Brave:", webData.results ? "✅" : "❌", "| RAWG:", rawgData.games.length, "| Profile:", userProfileData.profile.likedGames.length, "follows");
-  if (understanding.price_max !== null) {
-    console.log("[ALBUS] Prix max détecté:", understanding.price_max, "€");
-  }
+  console.log("[ALBUS] Phase 2 done → Brave:", webData.results ? "✅" : "❌", "| RAWG:", rawgData.games.length, "| Profile:", userProfileData.profile.likedGames.length, "follows | Prix max:", understanding.price_max);
 
-  // ==================== STEP 3: REASONING ====================
-  console.log("[ALBUS] Step 3: Final Reasoning...");
+  // ==================== PHASE 3: REASONING ====================
+  console.log("[ALBUS] Phase 3: Reasoning...");
 
   // ---- GAMEPLAY ----
   if (understanding.type === "gameplay") {
     const systemPrompt = `Tu es Albus, assistant gaming IA expert de Factiony.
 Réponds aux questions gaming (boss, build, strat, équipement, guide).
-Tu as accès aux données web récentes ci-dessous.
 Conseils directs, pratiques, précis. PAS D'ASTÉRISQUES.
 REPONDS EN ${userLanguage === "en" ? "ENGLISH" : "FRANÇAIS"}.`;
 
     const userPrompt = `Question: ${query}
 
-${webData.results
-      ? `DONNÉES WEB RÉCENTES (Brave Search):\n${webData.results}`
-      : "Pas de données web disponibles, réponds avec tes connaissances."}
+${webData.results ? `DONNÉES WEB RÉCENTES:\n${webData.results}` : "Réponds avec tes connaissances."}
 
-Réponds avec les meilleures stratégies/builds/conseils. Sois précis et actionnable.`;
+Sois précis et actionnable.`;
 
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => {
-        console.log("[ALBUS] Gameplay reasoning TIMEOUT après 25s");
-        controller.abort();
-      }, 25000);
+      // PERF: réduit à 15s (small model répond en ~3-4s)
+      const timeout = setTimeout(() => controller.abort(), 15000);
 
       const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
         method: "POST",
@@ -596,45 +533,30 @@ Réponds avec les meilleures stratégies/builds/conseils. Sois précis et action
         body: JSON.stringify({
           model: "mistral-small-latest",
           temperature: 0.7,
-          max_tokens: 2500,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
+          max_tokens: 2000,
+          messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
         }),
       });
       clearTimeout(timeout);
 
       if (res.ok) {
         const json = await res.json();
-        const answer = json?.choices?.[0]?.message?.content ?? "";
-        const clean = answer.replace(/\*\*?/g, "");
+        const answer = (json?.choices?.[0]?.message?.content ?? "").replace(/\*\*?/g, "");
         tokenUsage.reasoning = estimateTokens(systemPrompt + userPrompt + answer);
         tokenUsage.total = Object.values(tokenUsage).reduce((a, b) => a + b, 0);
-
-        console.log("[ALBUS] ✅ Gameplay | Tokens:", tokenUsage.total, "| Web data:", !!webData.results);
-
-        return jsonResponse({
-          query, user_pseudo: userPseudo, mode: "gameplay",
-          answer: clean,
-          tokens_used: tokenUsage.total,
-          has_web_data: !!webData.results,
-        }, 200, corsHeaders);
+        console.log("[ALBUS] ✅ Gameplay | Tokens:", tokenUsage.total);
+        return jsonResponse({ query, user_pseudo: userPseudo, mode: "gameplay", answer, tokens_used: tokenUsage.total, has_web_data: !!webData.results }, 200, corsHeaders);
       }
     } catch (e) {
       console.error("[ALBUS] Gameplay reasoning error:", e);
-      return jsonResponse({
-        query, user_pseudo: userPseudo, mode: "gameplay",
-        answer: "Désolé, j'ai eu un problème. Réessaie dans un instant.",
-      }, 200, corsHeaders);
+      return jsonResponse({ query, user_pseudo: userPseudo, mode: "gameplay", answer: "Désolé, j'ai eu un problème. Réessaie dans un instant." }, 200, corsHeaders);
     }
   }
 
   // ---- RECOMMENDATION ----
   if (rawgData.games.length === 0 && !webData.results) {
     return jsonResponse({
-      query, user_pseudo: userPseudo, mode: "recommendation",
-      recommendations: [],
+      query, user_pseudo: userPseudo, mode: "recommendation", recommendations: [],
       personal_message: understanding.temporal.start_date
         ? `Aucun jeu trouvé pour ${understanding.temporal.label}. Essaie une période plus large!`
         : "Aucun jeu trouvé. Essaie d'autres critères!",
@@ -652,64 +574,45 @@ Réponds avec les meilleures stratégies/builds/conseils. Sois précis et action
     released: g.released,
   }));
 
-  // FIX: bloc prix injecté dans le reasoningPrompt
   const priceConstraintBlock = understanding.price_max !== null
-    ? `💰 CONTRAINTE PRIX ABSOLUE: Max ${understanding.price_max}€ sur PS Store / Steam
-- NE RECOMMANDE JAMAIS un jeu qui dépasse ${understanding.price_max}€ au prix normal
-- Les AAA récents (Baldur's Gate 3 ~60€, God of War ~70€, Elden Ring ~40€, etc.) sont EXCLUS si leur prix normal dépasse ${understanding.price_max}€
-- Jeux généralement sous ${understanding.price_max}€ : jeux indés, back-catalog, jeux de 2-3 ans
-- It Takes Two (~20€), Rocket League (free), Fall Guys (free), Fortnite (free), Warframe (free) sont des exemples sous 30€
-- Si tu n'es pas sûr du prix, indique-le entre parenthèses`
+    ? `💰 CONTRAINTE PRIX ABSOLUE: Max ${understanding.price_max}€
+- EXCLUS (trop chers): Baldur's Gate 3 (~60€), God of War (~70€), Elden Ring (~40€), GTA VI (~70€)
+- OK sous ${understanding.price_max}€: It Takes Two (~20€), Rocket League (gratuit), Fall Guys (gratuit), jeux indés, back-catalog
+- Si tu n'es pas sûr du prix d'un jeu, indique-le entre parenthèses`
     : "";
 
-  // FIX: note online obligatoire si l'user demande du multi en ligne
   const onlineCoopNote = (understanding.genres.includes("online coop") || understanding.genres.includes("coop en ligne") || understanding.genres.includes("multi en ligne"))
-    ? `⚠️ MODE EN LIGNE OBLIGATOIRE: L'user veut jouer EN LIGNE. Ne recommande QUE des jeux avec multijoueur ou coop EN LIGNE (pas uniquement local/splitscreen). Indique dans la description le nombre de joueurs online supporté.`
+    ? `⚠️ ONLINE OBLIGATOIRE: jeux avec multijoueur EN LIGNE uniquement (pas local/splitscreen).`
     : "";
 
-  const reasoningPrompt = `Tu es Albus. FUSIONNE et RECOMMANDE intelligemment:
+  const reasoningPrompt = `Tu es Albus. RECOMMANDE intelligemment:
 
-🧠 CE QUE TU AS COMPRIS:
-- Intent: ${understanding.intent} (${understanding.context})
-- User Mindset: ${understanding.user_mindset}
-- Cherche: ${understanding.themes.join(", ") || "jeux généralement"}
-${understanding.comparisons.length > 0 ? `- Comparaisons: ${understanding.comparisons.join(", ")}` : ""}
-- Temporal: ${understanding.temporal.label}
-- Genres demandés: ${understanding.genres.join(", ") || "aucun filtre"}
-
+🧠 COMPRIS: ${understanding.intent} | ${understanding.user_mindset} | genres: ${understanding.genres.join(", ") || "aucun"}
 ${priceConstraintBlock}
-
 ${onlineCoopNote}
 
-🌐 DONNÉES WEB RÉELLES (Brave Search):
-${webData.results || "Pas de données web"}
+🌐 WEB: ${webData.results || "aucune donnée"}
 
-🎮 JEUX RAWG (${gamesData.length} dispo, triés par ${understanding.temporal.start_date ? "date" : "rating"}):
+🎮 JEUX RAWG DISPONIBLES:
 ${JSON.stringify(gamesData.slice(0, 12))}
 
-👤 PROFIL USER:
+👤 PROFIL:
 ${userProfileData.profile.summary}
 
-📋 TASK:
-1. FUSIONNE Web + RAWG + User profile
-2. Recommande EXACTEMENT 3 jeux en expliquant pourquoi c'est bon POUR CET USER spécifiquement
-3. Respecte ABSOLUMENT toutes les contraintes (prix, plateforme, mode de jeu)
-4. Pose 1 question courte après
+📋 TASK: Recommande EXACTEMENT 3 jeux de la liste RAWG. Explique pourquoi pour CET USER. Respecte TOUTES les contraintes. Pose 1 question courte après.
 
-Format STRICT (utilise exactement ce format pour chaque jeu):
-🎮 [Nom exact du jeu tel qu'il apparaît dans la liste RAWG ci-dessus]
-Description (POURQUOI pour lui spécifiquement)
-[Genres] - ${understanding.temporal.start_date ? "[Date sortie]" : "[Rating]/5"}
+Format (répète exactement):
+🎮 [Nom exact tel que dans la liste RAWG]
+Pourquoi pour lui
+[Genres] - [Rating]/5
 
-⚠️ PAS D'ASTÉRISQUES. Texte simple. EXACTEMENT 3 jeux.
-REPOND EN ${userLanguage === "en" ? "ENGLISH" : "FRANÇAIS"}.`;
+PAS D'ASTÉRISQUES. EXACTEMENT 3 JEUX.
+RÉPONDS EN ${userLanguage === "en" ? "ENGLISH" : "FRANÇAIS"}.`;
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      console.log("[ALBUS] Recommendation reasoning TIMEOUT après 20s");
-      controller.abort();
-    }, 20000);
+    // PERF: réduit à 15s (large model avec prompt court répond en ~4-6s)
+    const timeout = setTimeout(() => controller.abort(), 15000);
 
     const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
       method: "POST",
@@ -718,7 +621,7 @@ REPOND EN ${userLanguage === "en" ? "ENGLISH" : "FRANÇAIS"}.`;
       body: JSON.stringify({
         model: "mistral-large-latest",
         temperature: 0.8,
-        max_tokens: 2000,
+        max_tokens: 1500, // PERF: réduit de 2000 à 1500 — 3 recs + question = ~800 tokens max
         messages: [{ role: "user", content: reasoningPrompt }],
       }),
     });
@@ -740,7 +643,6 @@ REPOND EN ${userLanguage === "en" ? "ENGLISH" : "FRANÇAIS"}.`;
         const trimmed = line.trim();
         if (!trimmed) continue;
 
-        // FIX: normalise les deux noms pour le matching (gère "III" vs "3", ponctuation, etc.)
         const trimmedNorm = normalizeGameName(trimmed);
         const gameMatch = gamesData.find((g: any) => {
           const gNorm = normalizeGameName(g.name);
@@ -762,13 +664,10 @@ REPOND EN ${userLanguage === "en" ? "ENGLISH" : "FRANÇAIS"}.`;
           currentDescription = "";
         } else if (currentGame && trimmed.length > 5 && found < 3) {
           const isMetaLine = /^\[.*\]/.test(trimmed) || /^\d+(\.\d+)?\/5/.test(trimmed);
-          if (!isMetaLine) {
-            currentDescription += (currentDescription ? " " : "") + trimmed;
-          }
+          if (!isMetaLine) currentDescription += (currentDescription ? " " : "") + trimmed;
         }
       }
 
-      // Dernier jeu
       if (currentGame && found < 3) {
         recommendations.push({
           slug: currentGame.slug,
@@ -785,12 +684,10 @@ REPOND EN ${userLanguage === "en" ? "ENGLISH" : "FRANÇAIS"}.`;
       const questionLines = cleanRaw.split("\n")
         .map((s: string) => s.trim())
         .filter((s: string) => s.includes("?") && s.length > 10 && s.length < 200 && !/\d+\/5/.test(s));
-      if (questionLines.length > 0) {
-        questionText = questionLines[questionLines.length - 1];
-      }
+      if (questionLines.length > 0) questionText = questionLines[questionLines.length - 1];
 
       tokenUsage.total = Object.values(tokenUsage).reduce((a, b) => a + b, 0);
-      console.log("[ALBUS] ✅ Recs:", recs.length, "| Tokens:", tokenUsage.total, "| Web:", !!webData.results, "| Prix max:", understanding.price_max);
+      console.log("[ALBUS] ✅ Recs:", recs.length, "| Tokens:", tokenUsage.total);
 
       return jsonResponse({
         query, user_pseudo: userPseudo, mode: "recommendation",
