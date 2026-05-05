@@ -9,7 +9,7 @@ function jsonResponse(body: any, status = 200, corsHeaders: Record<string, strin
 
 const TAG_IDS: Record<string, number> = {
   "coop": 18, "coopératif": 18, "cooperative": 18, "co-op": 18,
-  "online coop": 9, "online co-op": 9,
+  "online coop": 9, "online co-op": 9, "coop en ligne": 9, "multi en ligne": 9,
   "multiplayer": 7906, "multijoueur": 7906,
   "solo": 3368, "single-player": 3368,
   "rpg": 5, "action": 4, "strategy": 10, "stratégie": 10,
@@ -44,6 +44,8 @@ interface QueryUnderstanding {
   context: string;
   user_mindset: "casual" | "hardcore" | "explorer" | "collector";
   intent: "discovery" | "recommendation" | "advice" | "comparison" | "help";
+  // FIX: prix max extrait de la requête
+  price_max: number | null;
 }
 
 interface UserProfile {
@@ -59,6 +61,20 @@ function estimateTokens(text: string): number {
 
 function getTodayDate(): string {
   return new Date().toISOString().split("T")[0];
+}
+
+// FIX: normalise les noms de jeux pour le matching (gère "III" vs "3", apostrophes, ponctuation)
+function normalizeGameName(name: string): string {
+  return name.toLowerCase()
+    .replace(/\biii\b/g, "3")
+    .replace(/\bii\b/g, "2")
+    .replace(/\biv\b/g, "4")
+    .replace(/\bvi\b/g, "6")
+    .replace(/\bvii\b/g, "7")
+    .replace(/[''`]/g, "'")
+    .replace(/[^a-z0-9 ']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // ==================== STEP 1: DEEP QUERY UNDERSTANDING ====================
@@ -86,7 +102,8 @@ COMPRENDS vraiment ce que l'user demande. RÉPONDS EN JSON UNIQUEMENT:
   "comparisons": ["like Elden Ring", "similar to The Last of Us"],
   "context": "user wants discoveries|recommendations|help|comparison",
   "user_mindset": "casual|hardcore|explorer|collector",
-  "intent": "discovery|recommendation|advice|comparison|help"
+  "intent": "discovery|recommendation|advice|comparison|help",
+  "price_max": 30
 }
 
 RÈGLES TEMPORELLES:
@@ -103,9 +120,15 @@ RÈGLES TYPE:
 - type="recommendation" si: cherche jeux, sorties, like, similaire, recommande
 - type="blocked" si: pas gaming du tout
 
+RÈGLES PRIX (IMPORTANT):
+- "moins de X euros|max X€|budget X|pas cher|X€ max|under X" → price_max=X (nombre entier)
+- "gratuit|free" → price_max=0
+- Pas de prix mentionné → price_max=null
+
 GENRES (important pour filtrer RAWG correctement):
-- "coop|coopératif|co-op|jouer ensemble|avec un ami" → genres=["coop"]
-- "multijoueur|multi" → genres=["multiplayer"]
+- "coop en ligne|online|multi en ligne|multijoueur en ligne|avec mon pote en ligne" → genres=["online coop"]
+- "coop|coopératif|co-op|avec un ami|avec mon pote" (SANS mention "en ligne") → genres=["coop"]
+- "multijoueur|multi" (SANS mention "en ligne") → genres=["multiplayer"]
 - "solo" → genres=["solo"]
 
 NEEDS_CURRENT_DATA:
@@ -163,6 +186,7 @@ IMPORTANT: Réponds UNIQUEMENT avec le JSON ci-dessus. Aucun champ supplémentai
       temporal: { start_date: null, end_date: null, label: "all_time", needs_current_data: false },
       platforms: [], genres: [], themes: [], comparisons: [],
       context: "", user_mindset: "explorer", intent: "discovery",
+      price_max: null,
     },
     tokens: 0,
   };
@@ -175,7 +199,6 @@ async function braveWebSearch(understanding: QueryUnderstanding, query: string, 
     return { results: "", tokens: 0 };
   }
 
-  // Construction de la query de recherche
   let searchQuery = query;
   if (understanding.type === "gameplay") {
     searchQuery = `${query} guide tips 2026`;
@@ -192,7 +215,6 @@ async function braveWebSearch(understanding: QueryUnderstanding, query: string, 
       controller.abort();
     }, 5000);
 
-    // Brave LLM Context API — résultats optimisés pour les agents IA
     const braveUrl = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(searchQuery)}&count=5&search_lang=fr&country=fr&text_decorations=false&extra_snippets=true`;
 
     const res = await fetch(braveUrl, {
@@ -218,7 +240,6 @@ async function braveWebSearch(understanding: QueryUnderstanding, query: string, 
       return { results: "", tokens: 0 };
     }
 
-    // Formatage des résultats pour Mistral
     const formatted = webResults
       .slice(0, 5)
       .map((r: any, i: number) => {
@@ -262,7 +283,6 @@ async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey:
     "playstation 3": "16", "ps3": "16",
   };
 
-  // Priorité : plateformes mentionnées dans la requête, sinon plateformes du profil user
   const platformsToUse = understanding.platforms?.length > 0
     ? understanding.platforms
     : userPlatforms;
@@ -273,6 +293,7 @@ async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey:
   }
 
   console.log("[ALBUS] RAWG platforms:", platformIds.join(",") || "aucun filtre");
+  console.log("[ALBUS] RAWG tags:", parsedTags.join(",") || "aucun filtre");
 
   const rawgParams = new URLSearchParams();
   rawgParams.set("key", rawgKey);
@@ -322,7 +343,6 @@ async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userJw
   }
 
   try {
-    // FIX: utilise le JWT user pour bypasser le RLS Supabase
     const headers = {
       "apikey": supabaseKey,
       "Authorization": `Bearer ${userJwt}`,
@@ -351,7 +371,6 @@ async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userJw
       `${r.game_slug || r.game_id} (${r.rating}/5${r.platform ? ` sur ${r.platform}` : ""})`
     );
 
-    // Plateformes dynamiques depuis les ratings
     const platformCounts = ratings
       .map((r: any) => r.platform)
       .filter(Boolean)
@@ -362,7 +381,7 @@ async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userJw
     const topPlatform = sortedPlatforms[0] ?? "non renseignée";
     const allPlatforms = sortedPlatforms.join(", ") || "non renseignée";
 
-    // FIX: topRated était utilisé dans le summary sans être déclaré
+    // FIX: topRated déclaré avant son utilisation dans le summary
     const topRated = ratings.filter((r: any) => Number(r.rating) >= 4);
 
     const profile: UserProfile = {
@@ -410,7 +429,7 @@ export default async (request: Request) => {
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
   const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
   const MISTRAL_API_KEY = Deno.env.get("MISTRAL_API_KEY");
-  // FIX: VITE_ prefix ne fonctionne pas dans les Edge Functions Deno — utilise RAWG_API_KEY
+  // FIX: VITE_ prefix ne fonctionne pas dans les Edge Functions Deno
   const RAWG_API_KEY = Deno.env.get("RAWG_API_KEY") ?? "";
   const BRAVE_API_KEY = Deno.env.get("BRAVE_SEARCH_API_KEY");
   const BASE_URL = Deno.env.get("FACTIONY_BASE_URL") ?? "https://factiony.com";
@@ -461,12 +480,10 @@ export default async (request: Request) => {
   // ==================== STEP 2: PARALLEL ====================
   console.log("[ALBUS] Step 2: Parallel Execution (Brave + RAWG + Profil)...");
 
-  // Récupère le JWT user depuis le header Authorization pour bypasser le RLS
   const authHeader = request.headers.get("Authorization") ?? "";
   const userJwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : SUPABASE_ANON_KEY;
 
   // ==================== RATE LIMITING (SERVER-SIDE) ====================
-  // Vérification tier depuis Supabase (ne pas faire confiance au client)
   let serverTier = "free";
   if (userId) {
     try {
@@ -483,7 +500,6 @@ export default async (request: Request) => {
     }
   }
 
-  // Vérification tokens utilisés ce mois
   if (userId) {
     try {
       const monthStart = new Date();
@@ -514,20 +530,17 @@ export default async (request: Request) => {
       }
     } catch (e) {
       console.error("[ALBUS] Token check error:", e);
-      // En cas d'erreur on laisse passer — mieux vaut servir que bloquer
     }
   }
 
-  // Tout en parallèle — profil + Brave + RAWG sans plateforme d'abord
   const [webData, rawgDataInitial, userProfileData] = await Promise.all([
     BRAVE_API_KEY
       ? braveWebSearch(understanding, query, BRAVE_API_KEY)
       : Promise.resolve({ results: "", tokens: 0 }),
-    intelligentRawgSearch(understanding, RAWG_API_KEY, []), // sans filtre plateforme d'abord
+    intelligentRawgSearch(understanding, RAWG_API_KEY, []),
     fetchUserProfile(SUPABASE_URL, SUPABASE_ANON_KEY, userJwt, userId, understanding.type),
   ]);
 
-  // Extraire les plateformes du profil
   const userPlatformNames = userProfileData.profile.reviews
     .map((r: any) => r.platform)
     .filter(Boolean)
@@ -536,8 +549,6 @@ export default async (request: Request) => {
     .sort((a: any, b: any) => b[1] - a[1])
     .map(([p]) => p.toLowerCase());
 
-  // Si on a des plateformes user ET que la query ne spécifie pas de plateforme,
-  // refaire RAWG avec le bon filtre plateforme
   let rawgData = rawgDataInitial;
   if (sortedUserPlatforms.length > 0 && understanding.platforms?.length === 0) {
     rawgData = await intelligentRawgSearch(understanding, RAWG_API_KEY, sortedUserPlatforms);
@@ -548,6 +559,9 @@ export default async (request: Request) => {
   tokenUsage.user_data = userProfileData.tokens;
 
   console.log("[ALBUS] Parallel done → Brave:", webData.results ? "✅" : "❌", "| RAWG:", rawgData.games.length, "| Profile:", userProfileData.profile.likedGames.length, "follows");
+  if (understanding.price_max !== null) {
+    console.log("[ALBUS] Prix max détecté:", understanding.price_max, "€");
+  }
 
   // ==================== STEP 3: REASONING ====================
   console.log("[ALBUS] Step 3: Final Reasoning...");
@@ -638,6 +652,21 @@ Réponds avec les meilleures stratégies/builds/conseils. Sois précis et action
     released: g.released,
   }));
 
+  // FIX: bloc prix injecté dans le reasoningPrompt
+  const priceConstraintBlock = understanding.price_max !== null
+    ? `💰 CONTRAINTE PRIX ABSOLUE: Max ${understanding.price_max}€ sur PS Store / Steam
+- NE RECOMMANDE JAMAIS un jeu qui dépasse ${understanding.price_max}€ au prix normal
+- Les AAA récents (Baldur's Gate 3 ~60€, God of War ~70€, Elden Ring ~40€, etc.) sont EXCLUS si leur prix normal dépasse ${understanding.price_max}€
+- Jeux généralement sous ${understanding.price_max}€ : jeux indés, back-catalog, jeux de 2-3 ans
+- It Takes Two (~20€), Rocket League (free), Fall Guys (free), Fortnite (free), Warframe (free) sont des exemples sous 30€
+- Si tu n'es pas sûr du prix, indique-le entre parenthèses`
+    : "";
+
+  // FIX: note online obligatoire si l'user demande du multi en ligne
+  const onlineCoopNote = (understanding.genres.includes("online coop") || understanding.genres.includes("coop en ligne") || understanding.genres.includes("multi en ligne"))
+    ? `⚠️ MODE EN LIGNE OBLIGATOIRE: L'user veut jouer EN LIGNE. Ne recommande QUE des jeux avec multijoueur ou coop EN LIGNE (pas uniquement local/splitscreen). Indique dans la description le nombre de joueurs online supporté.`
+    : "";
+
   const reasoningPrompt = `Tu es Albus. FUSIONNE et RECOMMANDE intelligemment:
 
 🧠 CE QUE TU AS COMPRIS:
@@ -648,7 +677,9 @@ ${understanding.comparisons.length > 0 ? `- Comparaisons: ${understanding.compar
 - Temporal: ${understanding.temporal.label}
 - Genres demandés: ${understanding.genres.join(", ") || "aucun filtre"}
 
-${understanding.genres.some((g: string) => ["coop", "multiplayer", "multijoueur", "solo", "single-player"].includes(g)) ? `Note: l'user cherche des jeux "${understanding.genres.filter((g: string) => ["coop", "multiplayer", "multijoueur", "solo", "single-player"].includes(g)).join(", ")}". Les jeux ont déjà été filtrés selon ce critère. Dans tes descriptions, mentionne brièvement le mode de jeu (ex: "coop 2-4 joueurs en ligne", "solo uniquement", "multijoueur compétitif").` : ""}
+${priceConstraintBlock}
+
+${onlineCoopNote}
 
 🌐 DONNÉES WEB RÉELLES (Brave Search):
 ${webData.results || "Pas de données web"}
@@ -661,15 +692,16 @@ ${userProfileData.profile.summary}
 
 📋 TASK:
 1. FUSIONNE Web + RAWG + User profile
-2. Recommande 1-3 jeux en expliquant pourquoi c'est bon POUR CET USER spécifiquement
-3. Pose 1 question courte après
+2. Recommande EXACTEMENT 3 jeux en expliquant pourquoi c'est bon POUR CET USER spécifiquement
+3. Respecte ABSOLUMENT toutes les contraintes (prix, plateforme, mode de jeu)
+4. Pose 1 question courte après
 
-Format:
-🎮 [Nom du jeu]
+Format STRICT (utilise exactement ce format pour chaque jeu):
+🎮 [Nom exact du jeu tel qu'il apparaît dans la liste RAWG ci-dessus]
 Description (POURQUOI pour lui spécifiquement)
 [Genres] - ${understanding.temporal.start_date ? "[Date sortie]" : "[Rating]/5"}
 
-⚠️ PAS D'ASTÉRISQUES. Texte simple.
+⚠️ PAS D'ASTÉRISQUES. Texte simple. EXACTEMENT 3 jeux.
 REPOND EN ${userLanguage === "en" ? "ENGLISH" : "FRANÇAIS"}.`;
 
   try {
@@ -708,12 +740,14 @@ REPOND EN ${userLanguage === "en" ? "ENGLISH" : "FRANÇAIS"}.`;
         const trimmed = line.trim();
         if (!trimmed) continue;
 
-        const gameMatch = gamesData.find((g: any) =>
-          trimmed.toLowerCase().includes(g.name.toLowerCase()) && trimmed.length < 100
-        );
+        // FIX: normalise les deux noms pour le matching (gère "III" vs "3", ponctuation, etc.)
+        const trimmedNorm = normalizeGameName(trimmed);
+        const gameMatch = gamesData.find((g: any) => {
+          const gNorm = normalizeGameName(g.name);
+          return trimmedNorm.includes(gNorm) && trimmed.length < 120;
+        });
 
         if (gameMatch && found < 3) {
-          // Sauvegarde le jeu précédent avant de passer au suivant
           if (currentGame) {
             recommendations.push({
               slug: currentGame.slug,
@@ -727,7 +761,6 @@ REPOND EN ${userLanguage === "en" ? "ENGLISH" : "FRANÇAIS"}.`;
           currentGame = gameMatch;
           currentDescription = "";
         } else if (currentGame && trimmed.length > 5 && found < 3) {
-          // Exclut les lignes qui ressemblent à des ratings ou genres courts
           const isMetaLine = /^\[.*\]/.test(trimmed) || /^\d+(\.\d+)?\/5/.test(trimmed);
           if (!isMetaLine) {
             currentDescription += (currentDescription ? " " : "") + trimmed;
@@ -748,7 +781,6 @@ REPOND EN ${userLanguage === "en" ? "ENGLISH" : "FRANÇAIS"}.`;
 
       const recs = recommendations.slice(0, 3);
 
-      // FIX questionText : cherche une vraie question (contient ?) en ignorant les ratings
       let questionText = "Lequel te tente?";
       const questionLines = cleanRaw.split("\n")
         .map((s: string) => s.trim())
@@ -758,7 +790,7 @@ REPOND EN ${userLanguage === "en" ? "ENGLISH" : "FRANÇAIS"}.`;
       }
 
       tokenUsage.total = Object.values(tokenUsage).reduce((a, b) => a + b, 0);
-      console.log("[ALBUS] ✅ Recs:", recs.length, "| Tokens:", tokenUsage.total, "| Web:", !!webData.results);
+      console.log("[ALBUS] ✅ Recs:", recs.length, "| Tokens:", tokenUsage.total, "| Web:", !!webData.results, "| Prix max:", understanding.price_max);
 
       return jsonResponse({
         query, user_pseudo: userPseudo, mode: "recommendation",
