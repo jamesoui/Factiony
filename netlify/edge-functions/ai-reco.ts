@@ -281,7 +281,7 @@ async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey:
 
   const rawgParams = new URLSearchParams();
   rawgParams.set("key", rawgKey);
-  rawgParams.set("page_size", "50");
+  rawgParams.set("page_size", "20");
   rawgParams.set("ordering", understanding.temporal.start_date ? "-released" : "-rating");
   if (platformIds.length > 0) rawgParams.set("platforms", platformIds.join(","));
   if (parsedTags.length > 0) rawgParams.set("tags", parsedTags.join(","));
@@ -310,7 +310,13 @@ async function intelligentRawgSearch(understanding: QueryUnderstanding, rawgKey:
       .sort((a, b) => new Date(b.released).getTime() - new Date(a.released).getTime());
   }
 
-  return { games, tokens: estimateTokens(JSON.stringify(games.slice(0, 20))) };
+  // Compte les tokens uniquement sur les champs utiles (pas le JSON brut RAWG)
+  const lightGames = games.slice(0, 12).map((g: any) => ({
+    name: g.name, slug: g.slug, id: g.id, rating: g.rating,
+    genres: (g.genres || []).map((x: any) => x.name).join(", "),
+    released: g.released,
+  }));
+  return { games, tokens: estimateTokens(JSON.stringify(lightGames)) };
 }
 
 // ==================== USER PROFILE ====================
