@@ -56,6 +56,8 @@ interface QueryUnderstanding {
   user_mindset: "casual" | "hardcore" | "explorer" | "collector";
   intent: "discovery" | "recommendation" | "advice" | "comparison" | "help" | "profile_stats";
   price_max: number | null;
+  // FIX: query résolue — remplace les pronoms ("le deuxième", "celui-là") par le vrai nom du jeu
+  resolved_query: string;
 }
 
 interface UserProfile {
@@ -80,12 +82,10 @@ function normalizeGameName(name: string): string {
     .replace(/[''`]/g, "'").replace(/[^a-z0-9 ']/g, " ").replace(/\s+/g, " ").trim();
 }
 
-// Formate l'historique de conversation pour l'injecter dans les prompts Mistral
 function formatHistory(history: ConversationMessage[]): string {
   if (!history || history.length === 0) return "";
-  return "\n\nCONVERSATION PRÉCÉDENTE (contexte important):\n" +
-    history.slice(-6).map(m => `${m.role === "user" ? "User" : "Albus"}: ${m.content}`).join("\n") +
-    "\n";
+  return "\n\nCONVERSATION PRÉCÉDENTE:\n" +
+    history.slice(-6).map(m => `${m.role === "user" ? "User" : "Albus"}: ${m.content}`).join("\n") + "\n";
 }
 
 // ==================== STEP 1: DEEP QUERY UNDERSTANDING ====================
@@ -96,77 +96,83 @@ async function deepQueryUnderstanding(
 ): Promise<{ understanding: QueryUnderstanding; tokens: number }> {
   const today = getTodayDate();
   const historyBlock = history.length > 0
-    ? `\nContexte conversation précédente:\n${history.slice(-4).map(m => `${m.role === "user" ? "User" : "Albus"}: ${m.content.substring(0, 200)}`).join("\n")}\n`
+    ? `\nContexte:\n${history.slice(-4).map(m => `${m.role === "user" ? "User" : "Albus"}: ${m.content.substring(0, 300)}`).join("\n")}\n`
     : "";
 
-  const prompt = `Tu es un agent IA gaming INTELLIGENT. Analyse cette requête EN PROFONDEUR.
+  const prompt = `Analyse cette requête gaming. Réponds en JSON uniquement.
 ${historyBlock}
-Requête actuelle: "${query}"
+Requête: "${query}"
 Aujourd'hui: ${today}
 
-RÉPONDS EN JSON UNIQUEMENT:
-
+JSON:
 {
   "type": "recommendation|gameplay|profile|comparison|blocked",
   "temporal": {
-    "start_date": "YYYY-MM-DD or null",
-    "end_date": "YYYY-MM-DD or null",
-    "label": "ce jour|ce mois|cette semaine|all_time",
-    "needs_current_data": true|false
+    "start_date": null,
+    "end_date": null,
+    "label": "all_time",
+    "needs_current_data": false
   },
-  "platforms": ["ps5", "xbox", "switch", "pc"],
-  "genres": ["rpg", "action"],
-  "themes": ["fantasy", "dark", "relaxing"],
-  "comparisons": ["Elden Ring", "Dark Souls"],
-  "context": "description courte",
+  "platforms": [],
+  "genres": [],
+  "themes": [],
+  "comparisons": [],
+  "context": "",
   "user_mindset": "casual|hardcore|explorer|collector",
   "intent": "discovery|recommendation|advice|comparison|help|profile_stats",
-  "price_max": null
+  "price_max": null,
+  "resolved_query": ""
 }
 
 RÈGLES TYPE:
-- type="gameplay" → boss, build, strat, combat, guide, comment faire
-- type="recommendation" → cherche jeux, recommande, similaire
-- type="comparison" → "X vs Y", "lequel entre X et Y", "X ou Y", comparer deux jeux nommés
-- type="profile" → top jeux, mes notes, mon classement, mes stats, mes meilleurs jeux, j'ai joué à quoi
-- type="blocked" → pas gaming
+- gameplay → boss, build, strat, combat, guide, comment faire, c'est quoi le gameplay
+- recommendation → cherche jeux, recommande, similaire
+- comparison → X vs Y, lequel entre X et Y
+- profile → top jeux, mes notes, mon classement, mes stats
+- blocked → pas gaming
 
-RÈGLES PRIX:
-- "moins de X euros|max X€|budget X|X€ max|pas cher" → price_max=X
-- "gratuit|free" → price_max=0
-- Rien → price_max=null
+RÈGLES resolved_query (TRÈS IMPORTANT):
+- Si la requête contient des pronoms contextuels ("le deuxième", "celui-là", "ce jeu", "le premier", "ce dernier", "il"), résous-les en utilisant le contexte de conversation et mets le vrai nom dans resolved_query
+- Exemples: "c'est quoi le gameplay exactement" + contexte "Battle Brothers" → resolved_query="Battle Brothers gameplay guide"
+- "plutôt le deuxième" + contexte "1.Hades 2.Battle Brothers 3.Lies of P" → resolved_query="Battle Brothers"
+- Si pas de pronom contextuel → resolved_query = requête originale
+
+RÈGLES PRIX: "moins de X euros|max X€|X€ max" → price_max=X, sinon null
 
 GENRES:
-- "coop en ligne|online|multi en ligne|multijoueur en ligne|avec mon pote en ligne" → ["online coop"]
-- "coop|avec un ami|avec mon pote" (sans "en ligne") → ["coop"]
-- "multijoueur|multi" (sans "en ligne") → ["multiplayer"]
-- "solo" → ["solo"]
+- "coop en ligne|multi en ligne|online" → ["online coop"]
+- "coop|avec un ami" (sans "en ligne") → ["coop"]
+- "multijoueur|multi" → ["multiplayer"]
 
-NEEDS_CURRENT_DATA:
-- gameplay → true TOUJOURS
-- recommendation + temporel → true
-- recommendation + all_time → false
-- profile/comparison → false
+NEEDS_CURRENT_DATA: gameplay→true, recommendation+temporel→true, sinon→false
 
-IMPORTANT: JSON uniquement. Tiens compte du contexte de conversation pour comprendre les références ("celui-là", "le deuxième", "plutôt X").`;
+JSON uniquement, aucun commentaire.`;
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 7000);
+    const timeout = setTimeout(() => controller.abort(), 6000);
+
     const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
       method: "POST", signal: controller.signal,
       headers: { Authorization: "Bearer " + mistralKey, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "mistral-large-latest", temperature: 0, max_tokens: 500,
+        // PERF: mistral-small pour l'understanding — tâche de classification simple, 3x plus rapide
+        model: "mistral-small-latest",
+        temperature: 0,
+        max_tokens: 400,
         messages: [{ role: "user", content: prompt }],
       }),
     });
     clearTimeout(timeout);
+
     if (res.ok) {
       const json = await res.json();
       const text = json?.choices?.[0]?.message?.content ?? "{}";
       try {
         const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+        // Fallback: si resolved_query vide, utilise la query originale
+        if (!parsed.resolved_query) parsed.resolved_query = query;
+        console.log("[ALBUS] Understanding:", parsed.type, "| resolved_query:", parsed.resolved_query);
         return { understanding: parsed, tokens: estimateTokens(prompt + text) };
       } catch (e) { console.error("[ALBUS] Understanding parse error:", text); }
     }
@@ -177,7 +183,8 @@ IMPORTANT: JSON uniquement. Tiens compte du contexte de conversation pour compre
       type: "recommendation",
       temporal: { start_date: null, end_date: null, label: "all_time", needs_current_data: false },
       platforms: [], genres: [], themes: [], comparisons: [],
-      context: "", user_mindset: "explorer", intent: "discovery", price_max: null,
+      context: "", user_mindset: "explorer", intent: "discovery",
+      price_max: null, resolved_query: query,
     },
     tokens: 0,
   };
@@ -206,48 +213,45 @@ async function braveSearch(query: string, braveKey: string, timeoutMs = 4000): P
   }
 }
 
-// Lance les recherches Brave en parallèle selon le contexte
 async function runBraveSearches(
   understanding: QueryUnderstanding,
   query: string,
   braveKey: string
 ): Promise<{ mainResults: string; priceResults: string; tokens: number }> {
   const searches: Promise<{ results: string; tokens: number }>[] = [];
-  const searchTypes: string[] = [];
 
-  // Search principal (gameplay ou temporel)
+  // FIX: utilise resolved_query pour Brave — évite "le deuxième guide tips 2026"
+  const searchQuery = understanding.resolved_query || query;
+
+  // Search principal
   if (understanding.temporal.needs_current_data) {
-    let searchQuery = query;
-    if (understanding.type === "gameplay") searchQuery = `${query} guide tips 2026`;
-    else if (understanding.temporal.label !== "all_time") searchQuery = `${query} ${understanding.temporal.label} 2026`;
-    searches.push(braveSearch(searchQuery, braveKey));
-    searchTypes.push("main");
-    console.log("[ALBUS] Brave main: ON →", searchQuery);
+    let braveQuery = searchQuery;
+    if (understanding.type === "gameplay") braveQuery = `${searchQuery} guide tips 2026`;
+    else if (understanding.temporal.label !== "all_time") braveQuery = `${searchQuery} ${understanding.temporal.label} 2026`;
+    searches.push(braveSearch(braveQuery, braveKey));
+    console.log("[ALBUS] Brave main: ON →", braveQuery);
   } else {
     searches.push(Promise.resolve({ results: "", tokens: 0 }));
-    searchTypes.push("main_off");
-    console.log("[ALBUS] Brave main: OFF (all_time)");
+    console.log("[ALBUS] Brave main: OFF");
   }
 
-  // Search prix si budget détecté — cherche directement les vrais prix PS Store / Steam
+  // Search prix
   if (understanding.price_max !== null && understanding.type === "recommendation") {
     const platform = understanding.platforms?.[0] ?? "PS5";
     const genre = understanding.genres?.join(" ") || "";
     const priceQuery = `jeux ${platform} ${genre} moins de ${understanding.price_max} euros prix PS Store 2025 2026`;
     searches.push(braveSearch(priceQuery, braveKey));
-    searchTypes.push("price");
     console.log("[ALBUS] Brave prix: ON →", priceQuery);
   } else {
     searches.push(Promise.resolve({ results: "", tokens: 0 }));
   }
 
-  // Search comparaison si type comparison
+  // Search comparison
   if (understanding.type === "comparison" && understanding.comparisons.length >= 1) {
     const compQuery = understanding.comparisons.length >= 2
       ? `${understanding.comparisons[0]} vs ${understanding.comparisons[1]} lequel choisir 2025 2026`
-      : `${understanding.comparisons[0]} avis test comparatif 2025 2026`;
+      : `${understanding.comparisons[0]} avis test 2025 2026`;
     searches.push(braveSearch(compQuery, braveKey));
-    searchTypes.push("comparison");
     console.log("[ALBUS] Brave comparison: ON →", compQuery);
   } else {
     searches.push(Promise.resolve({ results: "", tokens: 0 }));
@@ -255,14 +259,11 @@ async function runBraveSearches(
 
   const [mainData, priceData, compData] = await Promise.all(searches);
 
-  // Fusionne les résultats
   const mainResults = [mainData.results, compData.results].filter(Boolean).join("\n\n---\n\n");
   const priceResults = priceData.results;
   const tokens = mainData.tokens + priceData.tokens + compData.tokens;
 
-  if (priceResults) console.log("[ALBUS] Brave prix: ✅ données prix récupérées");
-  if (mainResults) console.log("[ALBUS] Brave main: ✅", mainResults.length, "chars");
-
+  if (mainResults) console.log("[ALBUS] Brave: ✅", mainResults.length, "chars");
   return { mainResults, priceResults, tokens };
 }
 
@@ -349,9 +350,9 @@ async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userJw
       likedGames: follows, averageRating, reviews: ratings,
       summary: `PROFIL JOUEUR:
 - ${ratings.length} jeux notés · moyenne ${averageRating}/5 · ${topRated.length} coups de cœur (4+/5)
-- Jeux notés (références de goût): ${ratedGames.join(" | ") || "aucun"}
-- Plateformes jouées: ${sortedPlatforms.join(", ") || "non renseignée"} (principale: ${sortedPlatforms[0] ?? "?"})
-- Wishlist (envies futures, PAS joués): ${followedNames.join(", ") || "aucun"}
+- Jeux notés: ${ratedGames.join(" | ") || "aucun"}
+- Plateformes: ${sortedPlatforms.join(", ") || "?"} (principale: ${sortedPlatforms[0] ?? "?"})
+- Wishlist: ${followedNames.join(", ") || "aucun"}
 - Profil: ${averageRating >= 4 ? "joueur exigeant" : averageRating >= 3 ? "joueur standard" : "explorateur curieux"}`,
     };
 
@@ -362,35 +363,20 @@ async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userJw
   }
 }
 
-// ==================== TOKEN USAGE WRITE ====================
-// Fire-and-forget — n'attend pas la réponse pour ne pas ralentir
+// ==================== TOKEN USAGE ====================
 async function writeTokenUsage(supabaseUrl: string, supabaseKey: string, userJwt: string, userId: string, tokensUsed: number): Promise<void> {
   if (!userId || tokensUsed === 0) return;
   try {
     await fetch(`${supabaseUrl}/rest/v1/token_usage`, {
       method: "POST",
-      headers: {
-        "apikey": supabaseKey,
-        "Authorization": `Bearer ${userJwt}`,
-        "Content-Type": "application/json",
-        "Prefer": "return=minimal",
-      },
-      body: JSON.stringify({
-        user_id: userId,
-        tokens_used: tokensUsed,
-        created_at: new Date().toISOString(),
-      }),
+      headers: { "apikey": supabaseKey, "Authorization": `Bearer ${userJwt}`, "Content-Type": "application/json", "Prefer": "return=minimal" },
+      body: JSON.stringify({ user_id: userId, tokens_used: tokensUsed, created_at: new Date().toISOString() }),
     });
-    console.log("[ALBUS] Token usage written:", tokensUsed);
-  } catch (e) {
-    console.error("[ALBUS] Token write error:", e);
-  }
+  } catch (e) { console.error("[ALBUS] Token write error:", e); }
 }
 
-// ==================== RATE LIMIT CHECK ====================
 async function checkRateLimit(supabaseUrl: string, supabaseKey: string, userJwt: string, userId: string): Promise<{ allowed: boolean; tier: string; message?: string }> {
   if (!userId) return { allowed: true, tier: "free" };
-
   try {
     const monthStart = new Date();
     monthStart.setDate(1);
@@ -399,7 +385,6 @@ async function checkRateLimit(supabaseUrl: string, supabaseKey: string, userJwt:
     const [subRes, usageRes] = await Promise.all([
       fetch(`${supabaseUrl}/rest/v1/subscriptions?user_id=eq.${userId}&status=eq.active&select=plan&limit=1`,
         { headers: { "apikey": supabaseKey, "Authorization": `Bearer ${userJwt}` } }),
-      // FIX: récupère TOUTES les lignes du mois pour sommer (INSERT par requête)
       fetch(`${supabaseUrl}/rest/v1/token_usage?user_id=eq.${userId}&created_at=gte.${monthStart.toISOString()}&select=tokens_used`,
         { headers: { "apikey": supabaseKey, "Authorization": `Bearer ${userJwt}` } }),
     ]);
@@ -409,7 +394,6 @@ async function checkRateLimit(supabaseUrl: string, supabaseKey: string, userJwt:
     const tokenLimit = tier === "premium" ? 100000 : 15000;
 
     const usageRows = usageRes.ok ? await usageRes.json() : [];
-    // Somme toutes les lignes du mois
     const tokensUsed = usageRows.reduce((sum: number, row: any) => sum + (Number(row.tokens_used) || 0), 0);
 
     console.log(`[ALBUS] Tokens: ${tokensUsed}/${tokenLimit} (${tier})`);
@@ -422,7 +406,6 @@ async function checkRateLimit(supabaseUrl: string, supabaseKey: string, userJwt:
           : `Tu as atteint ta limite mensuelle gratuite (${tokenLimit.toLocaleString()} tokens). Passe premium pour 10x plus !`,
       };
     }
-
     return { allowed: true, tier };
   } catch (e) {
     console.error("[ALBUS] Rate limit error:", e);
@@ -446,8 +429,7 @@ function buildProfileResponse(reviews: any[]): string {
     const name = r.game_slug
       ? r.game_slug.replace(/-/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
       : r.game_id;
-    const platform = r.platform ? ` (${r.platform})` : "";
-    return `${medal} ${name}${platform} — ${r.rating}/5`;
+    return `${medal} ${name}${r.platform ? ` (${r.platform})` : ""} — ${r.rating}/5`;
   });
 
   const vals = reviews.map((r: any) => Number(r.rating)).filter((n: number) => !isNaN(n) && n > 0);
@@ -489,7 +471,6 @@ export default async (request: Request) => {
   const userPseudo = (body?.user_pseudo ?? "").toString().trim();
   const userId = (body?.user_id ?? "").toString().trim();
   const userLanguage = (body?.language ?? "fr").toString().trim();
-  // NOUVEAU: historique de conversation passé par le frontend (3 derniers échanges max)
   const history: ConversationMessage[] = Array.isArray(body?.history) ? body.history.slice(-6) : [];
 
   if (!query) return jsonResponse({ error: "Missing query" }, 400, corsHeaders);
@@ -501,16 +482,13 @@ export default async (request: Request) => {
   const authHeader = request.headers.get("Authorization") ?? "";
   const userJwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : SUPABASE_ANON_KEY;
 
-  // ==================== PHASE 1: UNDERSTANDING + RATE LIMIT EN PARALLÈLE ====================
-  console.log("[ALBUS] Phase 1: Understanding + Rate limit...");
-
+  // ==================== PHASE 1: UNDERSTANDING + RATE LIMIT ====================
   const [{ understanding, tokens: understandingTokens }, rateLimitResult] = await Promise.all([
     deepQueryUnderstanding(query, MISTRAL_API_KEY, history),
     checkRateLimit(SUPABASE_URL, SUPABASE_ANON_KEY, userJwt, userId),
   ]);
 
   tokenUsage.deep_understanding = understandingTokens;
-  console.log("[ALBUS] Understanding:", JSON.stringify(understanding));
 
   if (!rateLimitResult.allowed) {
     return jsonResponse({ error: "token_limit_exceeded", message: rateLimitResult.message }, 200, corsHeaders);
@@ -520,9 +498,7 @@ export default async (request: Request) => {
     return jsonResponse({ query, user_pseudo: userPseudo, mode: "blocked", answer: "Je suis Albus, assistant gaming IA. Je peux t'aider sur les jeux vidéo!" }, 200, corsHeaders);
   }
 
-  // ==================== PHASE 2: BRAVE + RAWG + PROFILE EN PARALLÈLE ====================
-  console.log("[ALBUS] Phase 2: Brave + RAWG + Profile...");
-
+  // ==================== PHASE 2: BRAVE + RAWG + PROFILE ====================
   const queryPlatformIds = (understanding.platforms ?? [])
     .map((p: string) => PLATFORM_MAP[p.toLowerCase()]).filter(Boolean) as string[];
 
@@ -534,18 +510,16 @@ export default async (request: Request) => {
     fetchUserProfile(SUPABASE_URL, SUPABASE_ANON_KEY, userJwt, userId, understanding.type),
   ]);
 
-  // ---- PROFILE : réponse directe, zéro LLM ----
+  // ---- PROFILE ----
   if (understanding.type === "profile") {
     const answer = buildProfileResponse(userProfileData.profile.reviews);
     tokenUsage.user_data = userProfileData.tokens;
     tokenUsage.total = Object.values(tokenUsage).reduce((a, b) => a + b, 0);
-    // Fire and forget
     writeTokenUsage(SUPABASE_URL, SUPABASE_ANON_KEY, userJwt, userId, tokenUsage.total);
-    console.log("[ALBUS] ✅ Profile | Tokens:", tokenUsage.total);
     return jsonResponse({ query, user_pseudo: userPseudo, mode: "profile", answer, tokens_used: tokenUsage.total }, 200, corsHeaders);
   }
 
-  // Fallback RAWG avec plateformes profil si 0 résultats et pas de plateforme dans la requête
+  // Fallback RAWG avec plateformes profil
   let rawgData = rawgDataInitial;
   if (queryPlatformIds.length === 0 && rawgDataInitial.games.length === 0 && understanding.type === "recommendation") {
     const profilePlatformIds = Object.entries(
@@ -566,15 +540,14 @@ export default async (request: Request) => {
 
   const historyBlock = formatHistory(history);
 
-  console.log("[ALBUS] Phase 2 done → Brave main:", !!braveData.mainResults, "| Prix:", !!braveData.priceResults, "| RAWG:", rawgData.games.length, "| Historique:", history.length, "msgs");
+  console.log("[ALBUS] Phase 2 → Brave:", !!braveData.mainResults, "| Prix:", !!braveData.priceResults, "| RAWG:", rawgData.games.length);
 
   // ==================== PHASE 3: REASONING ====================
-  console.log("[ALBUS] Phase 3: Reasoning...");
 
   // ---- GAMEPLAY ----
   if (understanding.type === "gameplay") {
     const systemPrompt = `Tu es Albus, assistant gaming IA de Factiony pour ${userPseudo || "ce joueur"}.
-Réponds aux questions gaming (boss, build, strat, équipement, guide). PAS D'ASTÉRISQUES.
+Réponds aux questions gaming. PAS D'ASTÉRISQUES.
 REPONDS EN ${userLanguage === "en" ? "ENGLISH" : "FRANÇAIS"}.`;
 
     const userPrompt = `${historyBlock}Question: ${query}
@@ -583,12 +556,13 @@ Sois précis et actionnable.`;
 
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
+      const timeout = setTimeout(() => controller.abort(), 12000);
       const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
         method: "POST", signal: controller.signal,
         headers: { Authorization: "Bearer " + MISTRAL_API_KEY, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "mistral-small-latest", temperature: 0.7, max_tokens: 2000,
+          model: "mistral-small-latest",
+          temperature: 0.7, max_tokens: 1500,
           messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
         }),
       });
@@ -611,37 +585,30 @@ Sois précis et actionnable.`;
 
   // ---- COMPARISON ----
   if (understanding.type === "comparison") {
-    const games = understanding.comparisons.length > 0
-      ? understanding.comparisons.join(" et ")
-      : query;
+    const games = understanding.comparisons.length > 0 ? understanding.comparisons.join(" et ") : (understanding.resolved_query || query);
 
-    const compPrompt = `Tu es Albus, assistant gaming IA de Factiony pour ${userPseudo || "ce joueur"}.
+    const compPrompt = `Tu es Albus, assistant gaming de Factiony pour ${userPseudo || "ce joueur"}.
 ${historyBlock}
-L'user veut comparer: ${games}
-Question exacte: "${query}"
+Compare: ${games}
+Question: "${query}"
 
-${braveData.mainResults ? `DONNÉES WEB SUR CES JEUX:\n${braveData.mainResults}\n` : ""}
+${braveData.mainResults ? `DONNÉES WEB:\n${braveData.mainResults}\n` : ""}
 
-PROFIL DU JOUEUR:
+PROFIL:
 ${userProfileData.profile.summary}
 
-Fais une comparaison claire et personnalisée pour CE JOUEUR SPÉCIFIQUEMENT selon son profil.
-Structure:
-- Points forts de chaque jeu
-- Lequel est le mieux adapté à son profil et pourquoi
-- Recommandation finale claire
-
-PAS D'ASTÉRISQUES. Texte direct et utile.
-RÉPONDS EN ${userLanguage === "en" ? "ENGLISH" : "FRANÇAIS"}.`;
+Compare ces jeux pour CE JOUEUR selon son profil. Points forts de chaque, lequel lui correspond le mieux, recommandation finale.
+PAS D'ASTÉRISQUES. RÉPONDS EN ${userLanguage === "en" ? "ENGLISH" : "FRANÇAIS"}.`;
 
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
+      const timeout = setTimeout(() => controller.abort(), 12000);
       const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
         method: "POST", signal: controller.signal,
         headers: { Authorization: "Bearer " + MISTRAL_API_KEY, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "mistral-large-latest", temperature: 0.7, max_tokens: 1500,
+          model: "mistral-small-latest",
+          temperature: 0.7, max_tokens: 1200,
           messages: [{ role: "user", content: compPrompt }],
         }),
       });
@@ -683,21 +650,18 @@ RÉPONDS EN ${userLanguage === "en" ? "ENGLISH" : "FRANÇAIS"}.`;
   }));
 
   const priceConstraintBlock = understanding.price_max !== null
-    ? `💰 CONTRAINTE PRIX: Max ${understanding.price_max}€
-${braveData.priceResults
-  ? `DONNÉES PRIX RÉELLES (Brave Search):\n${braveData.priceResults}\nUtilise ces données pour vérifier les prix réels avant de recommander.`
-  : `Sans données prix en temps réel: évite les AAA récents (>40€ en général). Privilégie jeux indés, back-catalog, free-to-play.`}`
+    ? `💰 PRIX MAX: ${understanding.price_max}€
+${braveData.priceResults ? `DONNÉES PRIX RÉELLES:\n${braveData.priceResults}` : `Évite les AAA récents. Privilégie indés, back-catalog, free-to-play.`}`
     : "";
 
   const onlineCoopNote = (understanding.genres.includes("online coop") || understanding.genres.includes("coop en ligne") || understanding.genres.includes("multi en ligne"))
-    ? `⚠️ ONLINE OBLIGATOIRE: multijoueur EN LIGNE uniquement (pas local).`
-    : "";
+    ? `⚠️ ONLINE OBLIGATOIRE: multijoueur EN LIGNE uniquement.` : "";
 
   const reasoningPrompt = `Tu es Albus, assistant gaming de Factiony pour ${userPseudo || "ce joueur"}.
 ${historyBlock}
-RECOMMANDE intelligemment:
+RECOMMANDE:
 
-🧠 COMPRIS: ${understanding.intent} | ${understanding.user_mindset} | genres: ${understanding.genres.join(", ") || "aucun"}
+🧠 Intent: ${understanding.intent} | ${understanding.user_mindset} | genres: ${understanding.genres.join(", ") || "aucun"}
 ${priceConstraintBlock}
 ${onlineCoopNote}
 
@@ -709,24 +673,25 @@ ${JSON.stringify(gamesData.slice(0, 12))}
 👤 PROFIL:
 ${userProfileData.profile.summary}
 
-📋 Recommande EXACTEMENT 3 jeux de la liste RAWG. Explique POURQUOI pour CE JOUEUR PRÉCISÉMENT (référence à ses goûts, ses jeux notés, ses plateformes). Respecte TOUTES les contraintes. Pose 1 question courte après.
+Recommande EXACTEMENT 3 jeux de la liste RAWG. Explique POURQUOI pour CE JOUEUR (cite ses jeux notés). Respecte toutes les contraintes. Pose 1 question courte après.
 
-Format strict:
-🎮 [Nom exact de la liste RAWG]
+Format:
+🎮 [Nom exact RAWG]
 Pourquoi pour lui
 [Genres] - [Rating]/5
 
-PAS D'ASTÉRISQUES. 3 JEUX EXACTEMENT.
+PAS D'ASTÉRISQUES. 3 JEUX.
 RÉPONDS EN ${userLanguage === "en" ? "ENGLISH" : "FRANÇAIS"}.`;
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const timeout = setTimeout(() => controller.abort(), 12000);
     const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
       method: "POST", signal: controller.signal,
       headers: { Authorization: "Bearer " + MISTRAL_API_KEY, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "mistral-large-latest", temperature: 0.8, max_tokens: 1500,
+        model: "mistral-large-latest",
+        temperature: 0.8, max_tokens: 1200,
         messages: [{ role: "user", content: reasoningPrompt }],
       }),
     });
