@@ -367,11 +367,25 @@ async function fetchUserProfile(supabaseUrl: string, supabaseKey: string, userJw
 async function writeTokenUsage(supabaseUrl: string, supabaseKey: string, userJwt: string, userId: string, tokensUsed: number): Promise<void> {
   if (!userId || tokensUsed === 0) return;
   try {
-    await fetch(`${supabaseUrl}/rest/v1/token_usage`, {
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    // Appel RPC → INSERT ou UPDATE SET tokens_used = tokens_used + N (atomique)
+    await fetch(`${supabaseUrl}/rest/v1/rpc/increment_token_usage`, {
       method: "POST",
-      headers: { "apikey": supabaseKey, "Authorization": `Bearer ${userJwt}`, "Content-Type": "application/json", "Prefer": "return=minimal" },
-      body: JSON.stringify({ user_id: userId, tokens_used: tokensUsed, created_at: new Date().toISOString() }),
+      headers: {
+        "apikey": supabaseKey,
+        "Authorization": `Bearer ${userJwt}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        p_user_id: userId,
+        p_month_start: monthStart.toISOString(),
+        p_tokens: tokensUsed,
+      }),
     });
+    console.log("[ALBUS] Token usage incremented:", tokensUsed);
   } catch (e) { console.error("[ALBUS] Token write error:", e); }
 }
 
@@ -385,7 +399,7 @@ async function checkRateLimit(supabaseUrl: string, supabaseKey: string, userJwt:
     const [subRes, usageRes] = await Promise.all([
       fetch(`${supabaseUrl}/rest/v1/subscriptions?user_id=eq.${userId}&status=eq.active&select=plan&limit=1`,
         { headers: { "apikey": supabaseKey, "Authorization": `Bearer ${userJwt}` } }),
-      fetch(`${supabaseUrl}/rest/v1/token_usage?user_id=eq.${userId}&created_at=gte.${monthStart.toISOString()}&select=tokens_used`,
+      fetch(`${supabaseUrl}/rest/v1/token_usage?user_id=eq.${userId}&month_start=eq.${monthStart.toISOString()}&select=tokens_used&limit=1`,
         { headers: { "apikey": supabaseKey, "Authorization": `Bearer ${userJwt}` } }),
     ]);
 
@@ -394,7 +408,7 @@ async function checkRateLimit(supabaseUrl: string, supabaseKey: string, userJwt:
     const tokenLimit = tier === "premium" ? 100000 : 15000;
 
     const usageRows = usageRes.ok ? await usageRes.json() : [];
-    const tokensUsed = usageRows.reduce((sum: number, row: any) => sum + (Number(row.tokens_used) || 0), 0);
+    const tokensUsed = usageRows?.[0]?.tokens_used ?? 0;
 
     console.log(`[ALBUS] Tokens: ${tokensUsed}/${tokenLimit} (${tier})`);
 
