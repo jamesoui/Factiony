@@ -32,6 +32,22 @@ type Conversation = {
   updated_at: string;
 };
 
+// Timeout fetch — rejette après ms millisecondes avec un message clair
+function fetchWithTimeout(url: string, options: RequestInit, ms = 25000): Promise<Response> {
+  const timeoutController = new AbortController();
+  const timer = setTimeout(() => timeoutController.abort(), ms);
+
+  // Combine le signal timeout avec le signal d'annulation manuel si fourni
+  const combinedSignal = options.signal
+    ? AbortSignal.any
+      ? AbortSignal.any([options.signal, timeoutController.signal])
+      : timeoutController.signal
+    : timeoutController.signal;
+
+  return fetch(url, { ...options, signal: combinedSignal })
+    .finally(() => clearTimeout(timer));
+}
+
 export default function AssistantPage() {
   const { user } = useAuth();
   const { language } = useLanguage();
@@ -39,17 +55,19 @@ export default function AssistantPage() {
   const firstName = user?.user_metadata?.full_name?.split(' ')[0] || user?.user_metadata?.username || user?.email?.split('@')[0] || 'Joueur';
   const userPseudo = user?.user_metadata?.username || user?.email?.split('@')[0] || 'Gamer';
 
+  const welcomeMessage = (loggedIn: boolean): string => {
+    if (loggedIn) {
+      return language === 'en'
+        ? `Hey ${firstName} 👋\n\nWhat are we playing today?\n\nI can recommend games based on your Factiony taste, answer your gaming questions (bosses, builds, strats), and tap into our community's wisdom!`
+        : `Salut ${firstName} 👋\n\nOn joue à quoi aujourd'hui ?\n\nJe peux te recommander des jeux basé sur tes goûts Factiony, répondre à tes questions gaming (boss, builds, strats), et utiliser la sagesse de notre communauté !`;
+    }
+    return language === 'en'
+      ? `Hey 👋\n\nI'm Albus, Factiony's AI Assistant.\n\nI can:\n• Recommend games\n• Answer your gaming questions (bosses, builds, strats)\n• Use your history for personalized advice\n\nSign in for personalized recommendations!`
+      : `Salut 👋\n\nJe suis Albus, l'Assistant IA de Factiony.\n\nJe peux :\n• Te recommander des jeux\n• Répondre à tes questions gaming (boss, builds, strats)\n• Utiliser ton historique pour des conseils perso\n\nConnecte-toi pour des recos personnalisées !`;
+  };
+
   const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: 'assistant',
-      content: user
-        ? (language === 'en'
-    ? `Hey ${firstName} 👋\n\nWhat are we playing today?\n\nI can recommend games based on your Factiony taste, answer your gaming questions (bosses, builds, strats), and tap into our community's wisdom!`
-    : `Salut ${firstName} 👋\n\nOn joue à quoi aujourd'hui ?\n\nJe peux te recommander des jeux basé sur tes goûts Factiony, répondre à tes questions gaming (boss, builds, strats), et utiliser la sagesse de notre communauté !`)
-: (language === 'en'
-    ? `Hey 👋\n\nI'm Albus, Factiony's AI Assistant.\n\nI can:\n• Recommend games\n• Answer your gaming questions (bosses, builds, strats)\n• Use your history for personalized advice\n\nSign in for personalized recommendations!`
-    : `Salut 👋\n\nJe suis Albus, l'Assistant IA de Factiony.\n\nJe peux :\n• Te recommander des jeux\n• Répondre à tes questions gaming (boss, builds, strats)\n• Utiliser ton historique pour des conseils perso\n\nConnecte-toi pour des recos personnalisées !`),
-    },
+    { role: 'assistant', content: welcomeMessage(!!user) },
   ]);
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -60,7 +78,6 @@ export default function AssistantPage() {
   const [tokenStatus, setTokenStatus] = useState<{ used: number; limit: number; tier: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
-
   const sendAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -88,7 +105,7 @@ export default function AssistantPage() {
       monthStart.setDate(1);
       monthStart.setHours(0, 0, 0, 0);
 
-      // FIX: somme toutes les lignes du mois (une ligne par requête désormais)
+      // Somme toutes les lignes du mois (une ligne INSERT par requête côté backend)
       const { data } = await supabase
         .from('token_usage')
         .select('tokens_used')
@@ -163,16 +180,7 @@ export default function AssistantPage() {
 
   function startNewConversation() {
     sessionIdRef.current = crypto.randomUUID();
-    setMessages([{
-      role: 'assistant',
-      content: user
-        ? (language === 'en'
-    ? `Hey ${firstName} 👋\n\nWhat are we playing today?\n\nI can recommend games based on your Factiony taste, answer your gaming questions (bosses, builds, strats), and tap into our community's wisdom!`
-    : `Salut ${firstName} 👋\n\nOn joue à quoi aujourd'hui ?\n\nJe peux te recommander des jeux basé sur tes goûts Factiony, répondre à tes questions gaming (boss, builds, strats), et utiliser la sagesse de notre communauté !`)
-: (language === 'en'
-    ? `Hey 👋\n\nI'm Albus, Factiony's AI Assistant.\n\nI can:\n• Recommend games\n• Answer your gaming questions (bosses, builds, strats)\n• Use your history for personalized advice\n\nSign in for personalized recommendations!`
-    : `Salut 👋\n\nJe suis Albus, l'Assistant IA de Factiony.\n\nJe peux :\n• Te recommander des jeux\n• Répondre à tes questions gaming (boss, builds, strats)\n• Utiliser ton historique pour des conseils perso\n\nConnecte-toi pour des recos personnalisées !`),
-    }]);
+    setMessages([{ role: 'assistant', content: welcomeMessage(!!user) }]);
     setError(null);
   }
 
@@ -195,31 +203,33 @@ export default function AssistantPage() {
       const token = session?.access_token;
       const tier = user?.app_metadata?.tier === 'premium' ? 'premium' : 'free';
 
-      // NOUVEAU: extrait l'historique de conversation pour la mémoire d'Albus
-      // On prend les 6 derniers messages (3 échanges), on exclut le message welcome initial
-      // et on ne passe que les rôles user/assistant (pas les cards recommendations)
+      // Historique des derniers échanges pour la mémoire contextuelle d'Albus
       const history = messages
         .filter(m => (m.role === 'user' || m.role === 'assistant') && m.content.trim().length > 0)
         .slice(-6)
         .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content.substring(0, 500) }));
 
-      const res = await fetch('/api/ai-reco', {
-        method: 'POST',
-        signal: sendAbortRef.current.signal,
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      // FIX: timeout 25s côté client — évite le spinner infini si le backend timeout
+      const res = await fetchWithTimeout(
+        '/api/ai-reco',
+        {
+          method: 'POST',
+          signal: sendAbortRef.current.signal,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            query: finalQuery,
+            user_pseudo: userPseudo,
+            user_id: user?.id || '',
+            tier,
+            language,
+            history,
+          }),
         },
-        body: JSON.stringify({
-          query: finalQuery,
-          user_pseudo: userPseudo,
-          user_id: user?.id || '',
-          tier,
-          language,
-          // NOUVEAU: historique des derniers échanges pour la mémoire contextuelle
-          history,
-        }),
-      });
+        25000
+      );
 
       if (!res.ok) throw new Error(`API error ${res.status}`);
 
@@ -236,7 +246,7 @@ export default function AssistantPage() {
 
       let hasAddedRecos = false;
 
-      // Recommendations (mode: recommendation)
+      // Cards recommendations (mode: recommendation)
       if (data.recommendations?.length) {
         setMessages((prev) => [...prev, {
           role: 'recommendations',
@@ -259,12 +269,12 @@ export default function AssistantPage() {
         setMessages((prev) => [...prev, { role: 'assistant', content: data.personal_message! }]);
       }
 
-      // Mise à jour du compteur de tokens côté UI
+      // Mise à jour compteur tokens UI
       if (data.tokens_used && typeof data.tokens_used === 'number') {
         setTokenStatus(prev => prev ? { ...prev, used: prev.used + data.tokens_used! } : null);
       }
 
-      // Sauvegarde la conversation dans Supabase
+      // Sauvegarde conversation dans Supabase
       if (user?.id) {
         try {
           setMessages(prev => {
@@ -284,7 +294,20 @@ export default function AssistantPage() {
         } catch (saveErr) { console.error('Save error:', saveErr); }
       }
     } catch (e: any) {
-      if (e.name === 'AbortError') return;
+      if (e.name === 'AbortError') {
+        // Timeout ou annulation manuelle
+        const isTimeout = !sendAbortRef.current?.signal.aborted;
+        if (isTimeout) {
+          // Le signal de l'AbortController manuel n'est pas encore abort → c'est le timeout
+          setMessages((prev) => [...prev, {
+            role: 'assistant',
+            content: language === 'en'
+              ? 'Albus took too long to respond. Please try again!'
+              : 'Albus a mis trop de temps à répondre. Réessaie !'
+          }]);
+        }
+        return;
+      }
       console.error('Error:', e);
       setError(e.message || 'Erreur technique. Réessaie.');
       setMessages((prev) => [...prev, {
