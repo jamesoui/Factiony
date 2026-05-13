@@ -32,12 +32,11 @@ type Conversation = {
   updated_at: string;
 };
 
-// Timeout fetch — rejette après ms millisecondes avec un message clair
+// Timeout fetch — rejette après ms millisecondes
 function fetchWithTimeout(url: string, options: RequestInit, ms = 25000): Promise<Response> {
   const timeoutController = new AbortController();
   const timer = setTimeout(() => timeoutController.abort(), ms);
 
-  // Combine le signal timeout avec le signal d'annulation manuel si fourni
   const combinedSignal = options.signal
     ? AbortSignal.any
       ? AbortSignal.any([options.signal, timeoutController.signal])
@@ -105,12 +104,11 @@ export default function AssistantPage() {
       monthStart.setDate(1);
       monthStart.setHours(0, 0, 0, 0);
 
-      // Somme toutes les lignes du mois (une ligne INSERT par requête côté backend)
       const { data } = await supabase
         .from('token_usage')
         .select('tokens_used')
         .eq('user_id', user.id)
-        .gte('created_at', monthStart.toISOString());
+        .gte('month_start', monthStart.toISOString());
 
       if (isCancelled?.()) return;
 
@@ -195,7 +193,6 @@ export default function AssistantPage() {
     setMessages((prev) => [...prev, { role: 'user', content: finalQuery }]);
     setLoading(true);
 
-    sendAbortRef.current?.abort();
     sendAbortRef.current = new AbortController();
 
     try {
@@ -203,13 +200,25 @@ export default function AssistantPage() {
       const token = session?.access_token;
       const tier = user?.app_metadata?.tier === 'premium' ? 'premium' : 'free';
 
-      // Historique des derniers échanges pour la mémoire contextuelle d'Albus
-      const history = messages
-        .filter(m => (m.role === 'user' || m.role === 'assistant') && m.content.trim().length > 0)
-        .slice(-6)
-        .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content.substring(0, 500) }));
+      // FIX: inclut les recommendations dans l'historique comme message synthétique
+      // pour que resolved_query puisse résoudre "le deuxième" → "Lies Of P"
+      const history: { role: 'user' | 'assistant'; content: string }[] = [];
+      for (const m of messages.slice(-10)) {
+        if ((m.role === 'user' || m.role === 'assistant') && m.content.trim().length > 0) {
+          // Exclut le message de bienvenue (trop long, pas utile pour le contexte)
+          if (m.role === 'assistant' && m.content.startsWith('Salut ') && m.content.includes('On joue à quoi')) continue;
+          if (m.role === 'assistant' && m.content.startsWith('Hey ') && m.content.includes("What are we playing")) continue;
+          history.push({ role: m.role, content: m.content.substring(0, 300) });
+        } else if (m.role === 'recommendations' && m.recommendations?.length) {
+          // Message synthétique listant les jeux recommandés — essentiel pour résoudre
+          // les références contextuelles ("le deuxième", "celui-là", "le premier")
+          const recList = m.recommendations
+            .map((r, i) => `${i + 1}. ${r.title}`)
+            .join(', ');
+          history.push({ role: 'assistant', content: `Jeux recommandés: ${recList}` });
+        }
+      }
 
-      // FIX: timeout 25s côté client — évite le spinner infini si le backend timeout
       const res = await fetchWithTimeout(
         '/api/ai-reco',
         {
@@ -246,7 +255,6 @@ export default function AssistantPage() {
 
       let hasAddedRecos = false;
 
-      // Cards recommendations (mode: recommendation)
       if (data.recommendations?.length) {
         setMessages((prev) => [...prev, {
           role: 'recommendations',
@@ -256,7 +264,6 @@ export default function AssistantPage() {
         hasAddedRecos = true;
       }
 
-      // Réponse texte : gameplay, profile, comparison, blocked
       if (data.answer) {
         const lines: string[] = [data.answer];
         if (data.has_community_context) lines.push('\n💬 _Basé sur l\'expérience de la communauté Factiony_');
@@ -264,17 +271,14 @@ export default function AssistantPage() {
         setMessages((prev) => [...prev, { role: 'assistant', content: lines.join('\n') }]);
       }
 
-      // Question de suivi après les recommendations
       if (hasAddedRecos && data.recommendations?.length && data.personal_message) {
         setMessages((prev) => [...prev, { role: 'assistant', content: data.personal_message! }]);
       }
 
-      // Mise à jour compteur tokens UI
       if (data.tokens_used && typeof data.tokens_used === 'number') {
         setTokenStatus(prev => prev ? { ...prev, used: prev.used + data.tokens_used! } : null);
       }
 
-      // Sauvegarde conversation dans Supabase
       if (user?.id) {
         try {
           setMessages(prev => {
@@ -295,10 +299,8 @@ export default function AssistantPage() {
       }
     } catch (e: any) {
       if (e.name === 'AbortError') {
-        // Timeout ou annulation manuelle
         const isTimeout = !sendAbortRef.current?.signal.aborted;
         if (isTimeout) {
-          // Le signal de l'AbortController manuel n'est pas encore abort → c'est le timeout
           setMessages((prev) => [...prev, {
             role: 'assistant',
             content: language === 'en'
